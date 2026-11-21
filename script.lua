@@ -2595,6 +2595,24 @@ runtimeEnvironment.__fe_fit_popout = function(popout)
     scale.Scale = math.min(1, fitX, fitY)
 end
 
+runtimeEnvironment.__fe_add_glow = function(frame, library, thickness, transparency)
+    if typeof(frame) ~= 'Instance' or not frame:IsA('GuiObject') then return end
+    local existingGlow = frame:FindFirstChild('fe_glow')
+    if existingGlow then return existingGlow end
+    local glow = Instance.new('UIStroke')
+    glow.Name = 'fe_glow'
+    glow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    glow.LineJoinMode = Enum.LineJoinMode.Round
+    glow.Thickness = thickness or 3
+    glow.Transparency = transparency or 0.35
+    glow.Color = library and library.AccentColor or Color3.fromRGB(138, 43, 226)
+    glow.Parent = frame
+    if type(library) == 'table' and type(library.AddToRegistry) == 'function' then
+        library:AddToRegistry(glow, { Color = 'AccentColor' })
+    end
+    return glow
+end
+
 runtimeEnvironment.__fe_fit_popout_soon = function(popout)
     local fit = rawget(runtimeEnvironment, '__fe_fit_popout')
     getfenv().task.spawn(function()
@@ -10233,7 +10251,6 @@ local function directEntry(...)
                         localValue66 = localValue67
                     end
                     function capturedValue1:CreatePopout(argument70)
-                        local glassTransparency = (getfenv().Options and getfenv().Options.BackTransparency and getfenv().Options.BackTransparency.Value) or 0.4
                         if type(argument70.Title) ~= 'string' then
                             argument70.Title = 'No title'
                         end
@@ -10254,7 +10271,6 @@ local function directEntry(...)
                         local localValue74 = capturedValue1:Create(capturedCell1.current, {
                             AnchorPoint = argument70.AnchorPoint,
                             BackgroundColor3 = Color3.new(0, 0, 0),
-                            BackgroundTransparency = glassTransparency,
                             BorderSizePixel = 0,
                             Position = argument70.Position,
                             Size = UDim2.fromOffset(argument70.Size.X, argument70.Size.Y),
@@ -10265,9 +10281,9 @@ local function directEntry(...)
                         if (not argument70.RemoveTopbar) then
                             capturedValue1:MakeDraggableOutline(localValue74, 25)
                         end
+                        runtimeEnvironment.__fe_add_glow(localValue74, capturedValue1)
                         local localValue75 = capturedValue1:Create(capturedCell1.current, {
                             BackgroundColor3 = capturedValue1.MainColor,
-                            BackgroundTransparency = glassTransparency,
                             BorderColor3 = capturedValue1.OutlineColor,
                             BorderMode = Enum.BorderMode.Inset,
                             Position = UDim2.new(0, 1, 0, 1),
@@ -10277,7 +10293,6 @@ local function directEntry(...)
                         })
                         capturedValue1:AddToRegistry(localValue75, {
                             BackgroundColor3 = 'MainColor',
-                            BackgroundTransparency = 'BackTransparency',
                             BorderColor3 = capturedCell7.current,
                         })
                         if (not argument70.RemoveTopbar) then
@@ -11314,17 +11329,13 @@ local function directEntry(...)
                                                                                                                     BorderColor3 = capturedCell2.current,
                                                                                                                 })
                                                                                                                 capturedValue1:AddToRegistry(factoryCapture496Snapshot21, {
-                                                                                                                    BackgroundTransparency = 'BackTransparency',
                                                                                                                     BackgroundColor3 = 'MainColor',
                                                                                                                     BorderColor3 = capturedCell2.current,
                                                                                                                 })
-                                                                                                                factoryCapture496Snapshot21.BackgroundTransparency = (getfenv().Options and getfenv().Options.BackTransparency and getfenv().Options.BackTransparency.Value) or 0.4
                                                                                                                 capturedValue1:AddToRegistry(factoryCapture496Snapshot25.Frame, {
-                                                                                                                    BackgroundTransparency = 'BackTransparency',
                                                                                                                     BackgroundColor3 = 'MainColor',
                                                                                                                     BorderColor3 = capturedCell2.current,
                                                                                                                 })
-                                                                                                                factoryCapture496Snapshot25.Frame.BackgroundTransparency = (getfenv().Options and getfenv().Options.BackTransparency and getfenv().Options.BackTransparency.Value) or 0.4
                                                                                                                 capturedValue1:AddToRegistry(factoryCapture496Snapshot7, {
                                                                                                                     TextColor3 = 'FontColor',
                                                                                                                 })
@@ -14987,11 +14998,9 @@ local function directEntry(...)
                                                                                 BorderSizePixel = 0,
                                                                                 Size = UDim2.new(1, 0, 1, 0),
                                                                                 ZIndex = 21,
-                                                                                BackgroundTransparency = (getfenv().Options and getfenv().Options.BackTransparency and getfenv().Options.BackTransparency.Value) or 0.4,
                                                                                 Parent = factoryCapture491Snapshot3,
                                                                             })
                                                                             capturedValue1:AddToRegistry(localValue2, {
-                                                                                BackgroundTransparency = 'BackTransparency',
                                                                                 BackgroundColor3 = 'MainColor',
                                                                                 BorderColor3 = capturedCell4.current,
                                                                             })
@@ -15061,7 +15070,6 @@ local function directEntry(...)
                                                                                         BorderMode = Enum.BorderMode.Middle,
                                                                                         Size = UDim2.new(1, -1, 0, 20),
                                                                                         ZIndex = 23,
-                                                                                        BackgroundTransparency = (getfenv().Options and getfenv().Options.BackTransparency and getfenv().Options.BackTransparency.Value) or 0.4,
                                                                                         Active = true,
                                                                                         Parent = localValue3,
                                                                                         Image = '',
@@ -15069,7 +15077,6 @@ local function directEntry(...)
                                                                                         AutoButtonColor = false,
                                                                                     })
                                                                                     capturedValue1:AddToRegistry(localValue11, {
-                                                                                        BackgroundTransparency = 'BackTransparency',
                                                                                         BackgroundColor3 = 'MainColor',
                                                                                         BorderColor3 = capturedCell4.current,
                                                                                     })
@@ -18253,6 +18260,7 @@ local function directEntry(...)
                     end
                     localSlot216_5.Holder = localSlot216_6
                     capturedValue1.Window = localSlot216_5
+                    runtimeEnvironment.__fe_add_glow(localSlot216_5.Holder, capturedValue1)
                     localSlot216_18 = localSlot216_5
                     return localSlot216_18
                 end
@@ -18687,7 +18695,7 @@ local function directEntry(...)
                         capturedValue2.BuiltInThemes = {
                             Default = {
                                 1,
-                                httpService:JSONDecode('{\n\t\t\t\t"FontColor":"ffffff",\n\t\t\t\t"MainColor":"131313",\n\t\t\t\t"AccentColor":"8a2be2",\n\t\t\t\t"BackgroundColor":"000000",\n\t\t\t\t"OutlineColor":"808080",\n\t\t\t\t"RiskColor":"ff7425",\n\n\t\t\t\t"ItemType":"Unnamed Enhancements",\n\t\t\t\t"SwordColor":"ffffff",\n\t\t\t\t"SwordTransparency":"0",\n\t\t\t\t"SwordReflectance":"0",\n\t\t\t\t"SwordSpeed":"0.15",\n\t\t\t\t"SwordMaterial":"Neon",\n\n\t\t\t\t"Contrast":"0",\n\t\t\t\t"Saturation":"0",\n\t\t\t\t"Brightness":"0",\n\n\t\t\t\t"BackColor":"000000",\n\t\t\t\t"BlurSize":"25",\n\t\t\t\t"BackTransparency":"0.4"\n\t\t\t}'),
+                                httpService:JSONDecode('{\n\t\t\t\t"FontColor":"ffffff",\n\t\t\t\t"MainColor":"131313",\n\t\t\t\t"AccentColor":"8a2be2",\n\t\t\t\t"BackgroundColor":"000000",\n\t\t\t\t"OutlineColor":"808080",\n\t\t\t\t"RiskColor":"ff7425",\n\n\t\t\t\t"ItemType":"Unnamed Enhancements",\n\t\t\t\t"SwordColor":"ffffff",\n\t\t\t\t"SwordTransparency":"0",\n\t\t\t\t"SwordReflectance":"0",\n\t\t\t\t"SwordSpeed":"0.15",\n\t\t\t\t"SwordMaterial":"Neon",\n\n\t\t\t\t"Contrast":"0",\n\t\t\t\t"Saturation":"0",\n\t\t\t\t"Brightness":"0",\n\n\t\t\t\t"BackColor":"000000",\n\t\t\t\t"BlurSize":"15",\n\t\t\t\t"BackTransparency":"0.7"\n\t\t\t}'),
                             },
                             ['Tokyo Night'] = {
                                 1,
@@ -28912,8 +28920,6 @@ if chunk then pcall(chunk) end
         sharedSlot1_95.current.MainColor = "181818"
         sharedSlot1_95.current.AccentColor = "8a2be2"
         sharedSlot1_95.current.OutlineColor = "808080"
-        sharedSlot1_95.current.BackTransparency = 0.4
-        sharedSlot1_95.current.BlurSize = 25
         sharedSlot1_95.current.FontColor = "ffffff"
         sharedSlot1_93.current[1] = sharedSlot1_94.current
         sharedSlot1_93.current[2] = sharedSlot1_95.current
@@ -38139,15 +38145,14 @@ if chunk then pcall(chunk) end
                                                         local mainFrame = createInstance(readFrameClassName(), {
                                                             ZIndex = 100,
                                                             BackgroundColor3 = Library.MainColor,
-                                                            BackgroundTransparency = (getfenv().Options and getfenv().Options.BackTransparency and getfenv().Options.BackTransparency.Value) or 0.4,
                                                             BorderSizePixel = 0,
                                                             Size = UDim2.fromScale(1, 1),
                                                             Parent = frameWrapper:GetInner(),
                                                         })
                                                         Library:AddToRegistry(mainFrame, {
                                                             BackgroundColor3 = "MainColor",
-                                                            BackgroundTransparency = "BackTransparency",
                                                         })
+                                                        runtimeEnvironment.__fe_add_glow(mainFrame, Library)
                                                         local leftItemsFrame = createInstance(readFrameClassName(), {
                                                             ZIndex = 101,
                                                             BackgroundTransparency = 1,
@@ -44475,7 +44480,7 @@ if chunk then pcall(chunk) end
                             local movementFlyKeybind = Options.movement_flykeybind
                             local character = capturedValue1.characters[capturedValue2]
                             local forcedCFrame = nil
-                            if capturedValue7.TouchEnabled and not capturedValue7.KeyboardEnabled and not getgenv().__fe_fly_pad then
+                            if false then
                                 local padGui = Instance.new("ScreenGui")
                                 padGui.Name = "fe_fly_pad"
                                 padGui.ResetOnSpawn = false
