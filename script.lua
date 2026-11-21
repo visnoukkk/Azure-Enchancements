@@ -264,6 +264,7 @@ local function ragebot_initialize(
         clientValue = nil
         clientPosition = nil
         serverValue = nil
+        getgenv().__ragebot_current_target = nil
     end
 
     local function ragebot_get_client()
@@ -342,6 +343,7 @@ local function ragebot_initialize(
         clientValue = targetPart
         clientPosition = targetPart.Position
         serverValue = nil
+        getgenv().__ragebot_current_target = targetPart
     end
     local function ragebot_store_value3(neutralValue1)
         serverValue = neutralValue1
@@ -2593,6 +2595,33 @@ runtimeEnvironment.__fe_fit_popout = function(popout)
     local fitX = (viewport.X - 30) / math.max(1, sizeX)
     local fitY = (viewport.Y - 120) / math.max(1, sizeY)
     scale.Scale = math.min(1, fitX, fitY)
+end
+
+runtimeEnvironment.__fe_set_background = function(visible)
+    if not visible and not runtimeEnvironment.__fe_background_gui then return end
+    local backgroundGui = runtimeEnvironment.__fe_background_gui
+    if not backgroundGui then
+        backgroundGui = Instance.new('ScreenGui')
+        backgroundGui.Name = 'fe_background'
+        backgroundGui.ResetOnSpawn = false
+        backgroundGui.IgnoreGuiInset = true
+        backgroundGui.DisplayOrder = -1
+        local backgroundImage = Instance.new('ImageLabel')
+        backgroundImage.Name = 'background'
+        backgroundImage.BackgroundTransparency = 1
+        backgroundImage.Size = UDim2.fromScale(1, 1)
+        backgroundImage.ScaleType = Enum.ScaleType.Crop
+        backgroundImage.Image = 'rbxassetid://113966027728089'
+        backgroundImage.Visible = true
+        backgroundImage.ImageTransparency = 0
+        backgroundImage.Parent = backgroundGui
+        local hostOk, host = pcall(function()
+            return getfenv().UE_GUI_HOST and getfenv().UE_GUI_HOST() or game:GetService('CoreGui')
+        end)
+        backgroundGui.Parent = hostOk and host or game:GetService('CoreGui')
+        runtimeEnvironment.__fe_background_gui = backgroundGui
+    end
+    backgroundGui.Enabled = visible and true or false
 end
 
 runtimeEnvironment.__fe_add_glow = function(frame, library, thickness, transparency)
@@ -9179,17 +9208,15 @@ local function directEntry(...)
                     }
                     fonts.info = fontInfo
                     local registerFont
-                    registerFont = function(fontName, fontSize, fontSource)
-                        fontInfo[fontName] = {
-                            font = Font.new(utility:custom_font(
-                                fontName,
-                                200,
-                                "normal",
-                                { Id = fontName, Font = fontSource }
-                            )),
-                            size = fontSize,
-                        }
-                    end
+                        registerFont = function(fontName, fontSize, fontSource)
+                            local okFont, fontObject = pcall(function()
+                                return Font.new(utility:custom_font(fontName, 200, "normal", { Id = fontName, Font = fontSource }))
+                            end)
+                            if not okFont or not fontObject then
+                                fontObject = Font.new("rbxasset://fonts/families/Ubuntu.json")
+                            end
+                            fontInfo[fontName] = { font = fontObject, size = fontSize }
+                        end
                     local fontSource744 = function()
                         return base64_decode(embeddedTrueTypeFont1)
                     end
@@ -9221,15 +9248,20 @@ local function directEntry(...)
                     fonts.list = {}
                     for fontName, info in pairs(fontInfo) do
                         table.insert(fonts.list, fontName)
-                        game:GetService("TextService"):GetTextBoundsAsync(makeRobloxParameter(
-                            "GetTextBoundsParams",
-                            {
-                                Text = "\\",
-                                Size = info.size,
-                                Font = info.font,
-                                Width = math.huge,
-                            }
-                        ))
+                        local measured, measureError = pcall(function()
+                            return game:GetService("TextService"):GetTextBoundsAsync(makeRobloxParameter(
+                                "GetTextBoundsParams",
+                                {
+                                    Text = "\\",
+                                    Size = info.size,
+                                    Font = info.font,
+                                    Width = math.huge,
+                                }
+                            ))
+                        end)
+                        if not measured then
+                            info.font = Font.new("rbxasset://fonts/families/Ubuntu.json")
+                        end
                     end
                     local compareFontNameLength
                     compareFontNameLength = function(left, right)
@@ -17741,6 +17773,7 @@ local function directEntry(...)
                                                 capturedCell1.current = windowVisible
                                                 capturedValue1:FireEvent('VisibilityChanged', capturedCell1.current)
                                                 factoryCapture1303Snapshot6.Modal = windowVisible
+                                                runtimeEnvironment.__fe_set_background(windowVisible)
                                                 if windowVisible then
                                                     factoryCapture1303Snapshot10.Visible = true
                                                     local guiService = game:GetService('GuiService')
@@ -18695,7 +18728,7 @@ local function directEntry(...)
                         capturedValue2.BuiltInThemes = {
                             Default = {
                                 1,
-                                httpService:JSONDecode('{\n\t\t\t\t"FontColor":"ffffff",\n\t\t\t\t"MainColor":"131313",\n\t\t\t\t"AccentColor":"8a2be2",\n\t\t\t\t"BackgroundColor":"000000",\n\t\t\t\t"OutlineColor":"808080",\n\t\t\t\t"RiskColor":"ff7425",\n\n\t\t\t\t"ItemType":"Unnamed Enhancements",\n\t\t\t\t"SwordColor":"ffffff",\n\t\t\t\t"SwordTransparency":"0",\n\t\t\t\t"SwordReflectance":"0",\n\t\t\t\t"SwordSpeed":"0.15",\n\t\t\t\t"SwordMaterial":"Neon",\n\n\t\t\t\t"Contrast":"0",\n\t\t\t\t"Saturation":"0",\n\t\t\t\t"Brightness":"0",\n\n\t\t\t\t"BackColor":"000000",\n\t\t\t\t"BlurSize":"15",\n\t\t\t\t"BackTransparency":"0.7"\n\t\t\t}'),
+                                httpService:JSONDecode('{\n\t\t\t\t"FontColor":"ffffff",\n\t\t\t\t"MainColor":"181818",\n\t\t\t\t"AccentColor":"8a2be2",\n\t\t\t\t"BackgroundColor":"0e0d0d",\n\t\t\t\t"OutlineColor":"0e0505",\n\t\t\t\t"RiskColor":"e50000",\n\n\t\t\t\t"ItemType":"Unnamed Enhancements",\n\t\t\t\t"SwordColor":"ffffff",\n\t\t\t\t"SwordTransparency":"0",\n\t\t\t\t"SwordReflectance":"0",\n\t\t\t\t"SwordSpeed":"0.15",\n\t\t\t\t"SwordMaterial":"Neon",\n\n\t\t\t\t"Contrast":"0",\n\t\t\t\t"Saturation":"0",\n\t\t\t\t"Brightness":"0",\n\n\t\t\t\t"BackColor":"000000",\n\t\t\t\t"BlurSize":"15",\n\t\t\t\t"BackTransparency":"0.7"\n\t\t\t}'),
                             },
                             ['Tokyo Night'] = {
                                 1,
@@ -19386,7 +19419,18 @@ local function directEntry(...)
         sharedSlot1_90.current.settings = sharedSlot1_91.current
         do
             local sessionGroup = sharedSlot1_90.current.settings:AddRightGroupbox("session")
-            sessionGroup:AddButton("Unload", function()
+            sessionGroup:AddButton({
+                Text = "Unload",
+                DoubleClick = true,
+                Func = function()
+                    local togglesTable = getfenv().Toggles
+                    if type(togglesTable) == "table" then
+                        for _, toggle in pairs(togglesTable) do
+                            if type(toggle) == "table" and toggle.Value then
+                                pcall(toggle.SetValue, toggle, false)
+                            end
+                        end
+                    end
                 local environment = getgenv()
                 local mobilePad = environment.__fe_fly_pad
                 if type(mobilePad) == "table" and mobilePad.gui then
@@ -19401,7 +19445,8 @@ local function directEntry(...)
                 end
                 environment.__UEDEOBF_TEARDOWN = nil
                 environment.__UEDEOBF_GENERATION = nil
-            end)
+                end,
+            })
         end
         do
             sharedSlot1_91.current = function(localSlot59_1, localSlot59_2, localSlot59_3)
@@ -20980,6 +21025,35 @@ local function directEntry(...)
         sharedSlot1_98.current[2] = localSlot1_100
         sharedSlot1_97.current.Default = sharedSlot1_98.current
         sharedSlot1_94.current(sharedSlot1_95.current, sharedSlot1_96.current, sharedSlot1_97.current)
+        do
+            local viewingTab = sharedSlot1_92.current:AddTab("viewing")
+            viewingTab:AddToggle("ragebot_spectate_target", {
+                Text = "spectate target",
+                Default = false,
+                Tooltip = "spectates the player the ragebot is attacking",
+            })
+            local spectateCamera = workspace.CurrentCamera
+            local spectateFollowing = false
+            game:GetService("RunService").Heartbeat:Connect(function()
+                local localPlayer = game:GetService("Players").LocalPlayer
+                local localHumanoid = localPlayer and localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Humanoid")
+                local targetPart = getgenv().__ragebot_current_target
+                local targetHumanoid = targetPart and targetPart.Parent and targetPart.Parent:FindFirstChildOfClass("Humanoid")
+                local spectateToggle = getfenv().Toggles and getfenv().Toggles.ragebot_spectate_target
+                local spectateOn = spectateToggle and spectateToggle.Value
+                if spectateOn and targetHumanoid then
+                    if spectateCamera.CameraSubject ~= targetHumanoid then
+                        spectateCamera.CameraSubject = targetHumanoid
+                    end
+                    spectateFollowing = true
+                elseif spectateFollowing then
+                    spectateFollowing = false
+                    if localHumanoid then
+                        spectateCamera.CameraSubject = localHumanoid
+                    end
+                end
+            end)
+        end
         sharedSlot1_92.current = sharedSlot1_90.current.world
         sharedSlot1_93.current = sharedSlot1_92.current
         sharedSlot1_92.current = sharedSlot1_92.current.AddLeftTabbox
@@ -28916,10 +28990,11 @@ if chunk then pcall(chunk) end
         sharedSlot1_93.current = table.create(2)
         sharedSlot1_94.current = 1
         sharedSlot1_95.current = {}
-        sharedSlot1_95.current.BackgroundColor = "000000"
+        sharedSlot1_95.current.BackgroundColor = "0e0d0d"
         sharedSlot1_95.current.MainColor = "181818"
         sharedSlot1_95.current.AccentColor = "8a2be2"
-        sharedSlot1_95.current.OutlineColor = "808080"
+        sharedSlot1_95.current.RiskColor = "e50000"
+        sharedSlot1_95.current.OutlineColor = "0e0505"
         sharedSlot1_95.current.FontColor = "ffffff"
         sharedSlot1_93.current[1] = sharedSlot1_94.current
         sharedSlot1_93.current[2] = sharedSlot1_95.current
