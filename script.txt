@@ -1,4 +1,3 @@
--- test version
 -- hello devs
 -- azure enchancements source code
 -- skid if u want
@@ -266,15 +265,12 @@ local function ragebot_initialize(
     local STICKY_FRAMES = 4
     local TP_WRITES_PER_FRAME = 8
     local V0 = Vector3.zero
-    local _ni_cache = nil
-    local _ni_checked = false
+    local _ni_cache, _ni_checked = nil, false
 
     local function getHRPNewIndex(hrp)
         if not _ni_checked then
             local ok, mt = pcall(getrawmetatable, hrp)
-            if ok and mt then
-                _ni_cache = rawget(mt, "__newindex")
-            end
+            if ok and mt then _ni_cache = rawget(mt, "__newindex") end
             _ni_checked = true
         end
         return _ni_cache
@@ -312,9 +308,44 @@ local function ragebot_initialize(
 
     local function beginStickyLock(hrp, cf)
         stickyCF = cf
-        stickyLockUntil = tick() + (STICKY_FRAMES * (1 / 60))
-        if hrp then
-            stickySetCF(hrp, cf)
+        stickyLockUntil = tick() + (STICKY_FRAMES / 60)
+        if hrp then stickySetCF(hrp, cf) end
+    end
+
+    -- Attack pos / evasion helper
+    local function ragebot_compute_attack_cf(targetPart)
+        if not targetPart then return nil end
+        local hrp = (typeof(targetPart) == "Instance" and targetPart:IsA("BasePart") and (targetPart.Parent and targetPart.Parent:FindFirstChild("HumanoidRootPart") or targetPart)) or nil
+        if not hrp then return nil end
+        local basePos = hrp.Position
+        local look = hrp.CFrame.LookVector
+        local right = hrp.CFrame.RightVector
+        local up = Vector3.new(0, 1, 0)
+        local posOpt = (Options and Options.ragebot_attack_pos and Options.ragebot_attack_pos.Value) or "above"
+        local method = (Options and Options.ragebot_evasion_method and Options.ragebot_evasion_method.Value) or "scatter"
+        local depth = (Options and Options.ragebot_evasion_depth and Options.ragebot_evasion_depth.Value) or -5
+
+        if method == "translocate" then
+            return CFrame.new(basePos + up * depth) * (hrp.CFrame - hrp.CFrame.Position)
+        elseif method == "projectile breaker" then
+            local t = os.clock()
+            local oscUp = depth + math.sin(t * 5) * 2.5
+            local oscFwd = math.sin(t * 4) * 3
+            return CFrame.lookAt(basePos + up * oscUp + look * oscFwd, basePos)
+        end
+
+        -- attack pos (scatter / default path)
+        if posOpt == "under" then
+            return CFrame.new(basePos - up * 6, basePos)
+        elseif posOpt == "random" then
+            local t = os.clock()
+            local angle = t * 3 % (math.pi * 2)
+            local radius = 6 + math.sin(t * 2) * 3
+            local offset = (right * math.cos(angle) + look * math.sin(angle)) * radius + up * (2 + math.sin(t * 4) * 2)
+            return CFrame.new(basePos + offset, basePos)
+        else
+            -- above
+            return CFrame.new(basePos + up * 5 - look * 3, basePos)
         end
     end
 
@@ -376,7 +407,6 @@ local function ragebot_initialize(
         currentCharacter = character
         humanoidRootPart = nextHumanoidRootPart
         pcall(runService.UnbindFromRenderStep, runService, snapshotP556Capture5)
-        -- Apply sticky / attack CFrame every render frame (Kicia-style)
         runService:BindToRenderStep(snapshotP556Capture5, Enum.RenderPriority.Camera.Value - 1, function()
             if not humanoidRootPart or not humanoidRootPart.Parent then return end
             local now = tick()
@@ -393,9 +423,7 @@ local function ragebot_initialize(
 
     local snapshotP557Capture3 = renderBindingGuid
     local function ragebot_unbind_removed_character(character)
-        if character ~= currentCharacter then
-            return
-        end
+        if character ~= currentCharacter then return end
         pcall(runService.UnbindFromRenderStep, runService, snapshotP557Capture3)
         humanoidRootPart = nil
         clientValue = nil
@@ -412,7 +440,6 @@ local function ragebot_initialize(
     local renderStepped = runService.RenderStepped
 
     local function ragebot_store_target_part(targetPart)
-        -- Client visual only — never clear serverValue / sticky
         clientValue = targetPart
         if typeof(targetPart) == "CFrame" then
             clientPosition = targetPart.Position
@@ -422,10 +449,16 @@ local function ragebot_initialize(
     end
 
     local function ragebot_store_value3(neutralValue1)
-        -- Attack / server CFrame — begin sticky lock (Kicia-style)
-        serverValue = neutralValue1
-        if neutralValue1 and typeof(neutralValue1) == "CFrame" then
-            beginStickyLock(humanoidRootPart, neutralValue1)
+        -- Prefer attack-pos / evasion CFrame when we have a target
+        local attackCF = nil
+        local tgt = getgenv().__ragebot_current_target
+        if tgt then
+            attackCF = ragebot_compute_attack_cf(typeof(tgt) == "Instance" and tgt:IsA("Player") and tgt.Character and tgt.Character:FindFirstChild("HumanoidRootPart") or tgt)
+        end
+        local cf = attackCF or neutralValue1
+        serverValue = cf
+        if cf and typeof(cf) == "CFrame" then
+            beginStickyLock(humanoidRootPart, cf)
         end
     end
 
@@ -513,9 +546,7 @@ local function ragebot_initialize(
             raycastParameters.BruteForceAllSlow = true
             local scaledDirection = direction * 500
             local currentHit = workspace:Raycast(origin, scaledDirection, raycastParameters)
-            local safety = 0
-            while safety < 64 do
-                safety += 1
+            while true do
                 raycastParameters.FilterDescendantsInstances = activeBarriers
                 local castOrigin
                 if currentHit then
@@ -526,12 +557,7 @@ local function ragebot_initialize(
                 local nextHit = workspace:Raycast(castOrigin, origin - castOrigin, raycastParameters)
                 if nextHit then
                     currentHit = nextHit
-                    local idx = table.find(activeBarriers, currentHit.Instance)
-                    if idx then
-                        table.remove(activeBarriers, idx)
-                    else
-                        break
-                    end
+                    table.remove(activeBarriers, table.find(activeBarriers, currentHit.Instance))
                 else
                     if currentHit then
                         table.insert(candidatePositions, currentHit.Position - direction * 10)
@@ -1268,7 +1294,6 @@ local function ragebot_initialize(
                 status = "invalid weapons for ragebot"
             end
         end
-        getgenv().__ragebot_current_target = neutralValue6 or neutralValue1
         local message = ""
         if snapshotP583Capture10.Value then
             local displayOptions = snapshotP583Capture11.Value
@@ -1337,7 +1362,6 @@ local function ragebot_initialize(
                 return snapshotP587Capture3()
             end
 
-            -- Capture real local CFrame for client visual
             local realCF = snapshotP587Capture5(humanoidRootPart, "CFrame")
             snapshotP587Capture4(realCF)
 
@@ -1351,17 +1375,12 @@ local function ragebot_initialize(
             local now = tick()
             local inSticky = stickyCF and now < stickyLockUntil
 
-            -- Anti-aim only when not sticky-locked on attack pos
             if not inSticky and not serverValue then
                 for _, neutralCallback1 in snapshotP587Capture10 do
-                    local neutralStop1 = neutralCallback1()
-                    if neutralStop1 then
-                        break
-                    end
+                    if neutralCallback1() then break end
                 end
             end
 
-            -- Kicia-style sticky TP application every Heartbeat
             if inSticky then
                 stickySetCF(humanoidRootPart, stickyCF)
                 clientValue = stickyCF
@@ -1379,7 +1398,7 @@ local function ragebot_initialize(
             end
         end)
         if not ok then
-            warn("[azure ragebot] frame_step error:", err)
+            warn("[azure ragebot] frame_step:", err)
         end
     end
     ragebot_track(runService.Heartbeat:Connect(ragebot_frame_step))
@@ -21138,6 +21157,35 @@ local function directEntry(...)
         sharedSlot1_98.current[2] = localSlot1_100
         sharedSlot1_97.current.Default = sharedSlot1_98.current
         sharedSlot1_94.current(sharedSlot1_95.current, sharedSlot1_96.current, sharedSlot1_97.current)
+
+        -- ========== EVASION TAB (merged with ragebot / priority / viewing) ==========
+        do
+            local evasionTab = sharedSlot1_92.current:AddTab("evasion")
+
+            evasionTab:AddDropdown("ragebot_evasion_method", {
+                Text = "evasion method",
+                Values = { "scatter", "translocate", "projectile breaker" },
+                Default = 1,
+                Tooltip = "scatter = default, translocate = under target, projectile breaker = oscillating",
+            })
+
+            evasionTab:AddSlider("ragebot_evasion_depth", {
+                Text = "depth",
+                Min = -10,
+                Max = 10,
+                Default = -5,
+                Rounding = 1,
+                Tooltip = "vertical offset for translocate / projectile breaker (negative = under)",
+            })
+
+            evasionTab:AddDropdown("ragebot_attack_pos", {
+                Text = "attack pos",
+                Values = { "above", "under", "random" },
+                Default = 1,
+                Tooltip = "attack position relative to target (above / under / random orbit)",
+            })
+        end
+
         do
             local viewingTab = sharedSlot1_92.current:AddTab("viewing")
             local spectateToggleObject = viewingTab:AddToggle("ragebot_spectate_target", {
