@@ -21027,7 +21027,7 @@ local function directEntry(...)
         sharedSlot1_94.current(sharedSlot1_95.current, sharedSlot1_96.current, sharedSlot1_97.current)
         do
             local viewingTab = sharedSlot1_92.current:AddTab("viewing")
-            viewingTab:AddToggle("ragebot_spectate_target", {
+            local spectateToggleObject = viewingTab:AddToggle("ragebot_spectate_target", {
                 Text = "spectate target",
                 Default = false,
                 Tooltip = "spectates the player the ragebot is attacking",
@@ -21039,7 +21039,7 @@ local function directEntry(...)
                 local localHumanoid = localPlayer and localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Humanoid")
                 local targetPart = getgenv().__ragebot_current_target
                 local targetHumanoid = targetPart and targetPart.Parent and targetPart.Parent:FindFirstChildOfClass("Humanoid")
-                local spectateToggle = getfenv().Toggles and getfenv().Toggles.ragebot_spectate_target
+            local spectateToggle = spectateToggleObject or (getfenv().Toggles and getfenv().Toggles.ragebot_spectate_target)
                 local spectateOn = spectateToggle and spectateToggle.Value
                 if spectateOn and targetHumanoid then
                     if spectateCamera.CameraSubject ~= targetHumanoid then
