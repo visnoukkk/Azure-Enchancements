@@ -1,3 +1,8 @@
+-- ==== changelogs ====
+-- added attack pos
+-- added spectate target
+-- ====================
+-- version v1.5
 -- hello devs
 -- azure enchancements source code
 -- skid if u want
@@ -259,11 +264,16 @@ local function ragebot_initialize(
     local ragebotActive
     local currentCharacter
 
+    -- Sticky attack CFrame (declared early so render/heartbeat closures can capture it)
+    local attackCFrameStickyUntil = 0
+    local ATTACK_CF_STICKY_TIME = 0.12
+
     local function ragebot_reset_target_state()
         ragebotActive = nil
         clientValue = nil
         clientPosition = nil
         serverValue = nil
+        attackCFrameStickyUntil = 0
         getgenv().__ragebot_current_target = nil
     end
 
@@ -314,8 +324,14 @@ local function ragebot_initialize(
         currentCharacter = character
         humanoidRootPart = nextHumanoidRootPart
         pcall(runService.UnbindFromRenderStep, runService, snapshotP556Capture5)
+        -- Apply client/attack CFrame every render frame for tight visual sync
         runService:BindToRenderStep(snapshotP556Capture5, Enum.RenderPriority.Camera.Value - 1, function()
-            if clientValue then
+            if not humanoidRootPart or not humanoidRootPart.Parent then return end
+            local now = tick()
+            -- Prefer sticky attack CFrame for perfect visual + hit sync
+            if serverValue and now < attackCFrameStickyUntil then
+                humanoidRootPart.CFrame = serverValue
+            elseif clientValue then
                 humanoidRootPart.CFrame = clientValue
             end
         end)
@@ -339,14 +355,24 @@ local function ragebot_initialize(
     end
 
     local renderStepped = runService.RenderStepped
+
     local function ragebot_store_target_part(targetPart)
+        -- Store the real local CFrame for client visual / anti-aim only.
+        -- Do NOT clear serverValue and do NOT touch __ragebot_current_target.
         clientValue = targetPart
-        clientPosition = targetPart.Position
-        serverValue = nil
-        getgenv().__ragebot_current_target = targetPart
+        if typeof(targetPart) == "CFrame" then
+            clientPosition = targetPart.Position
+        elseif typeof(targetPart) == "Instance" and targetPart:IsA("BasePart") then
+            clientPosition = targetPart.Position
+        end
     end
+
     local function ragebot_store_value3(neutralValue1)
+        -- "Server" / attack CFrame used for hit registration
         serverValue = neutralValue1
+        if neutralValue1 then
+            attackCFrameStickyUntil = tick() + ATTACK_CF_STICKY_TIME
+        end
     end
 
     local function ragebot_is_active()
@@ -1181,6 +1207,8 @@ local function ragebot_initialize(
                 status = "invalid weapons for ragebot"
             end
         end
+        -- Keep spectate target in sync with current ragebot target
+        getgenv().__ragebot_current_target = neutralValue6 or neutralValue1
         local message = ""
         if snapshotP583Capture10.Value then
             local displayOptions = snapshotP583Capture11.Value
@@ -1247,14 +1275,23 @@ local function ragebot_initialize(
         if not neutralReady1 then
             return snapshotP587Capture3()
         end
-        snapshotP587Capture4(snapshotP587Capture5(humanoidRootPart, "CFrame"))
+
+        -- Always capture the real local CFrame first (for client visual / anti-aim)
+        local realCF = snapshotP587Capture5(humanoidRootPart, "CFrame")
+        snapshotP587Capture4(realCF)
+
         local neutralUpdate1 = ragebot_read_state_if_enabled()
         if neutralUpdate1 then
             indicatorWorker(deltaTime)
         elseif ragebotActive then
             ragebotActive = nil
         end
-        if not serverValue then
+
+        -- Anti-aim only runs when we are NOT in an active attack sticky window
+        local now = tick()
+        local inAttackSticky = serverValue and now < attackCFrameStickyUntil
+
+        if not inAttackSticky then
             for _, neutralCallback1 in snapshotP587Capture10 do
                 local neutralStop1 = neutralCallback1()
                 if neutralStop1 then
@@ -1262,9 +1299,28 @@ local function ragebot_initialize(
                 end
             end
         end
-        if serverValue then
+
+        -- Improved CSync application:
+        -- 1. Prefer sticky attack CFrame while it is valid
+        -- 2. Fall back to any remaining serverValue
+        -- 3. Only clear when sticky window fully expires
+        if inAttackSticky and serverValue then
             humanoidRootPart.CFrame = serverValue
+            -- Keep clientValue in sync so RenderStepped visual matches
+            clientValue = serverValue
+            if typeof(serverValue) == "CFrame" then
+                clientPosition = serverValue.Position
+            end
+        elseif serverValue then
+            humanoidRootPart.CFrame = serverValue
+            clientValue = serverValue
+            if typeof(serverValue) == "CFrame" then
+                clientPosition = serverValue.Position
+            end
+            -- Sticky expired – clear so we don't keep forcing an old attack pos
+            serverValue = nil
         else
+            -- No attack position → pure client / anti-aim mode
             clientValue = nil
             clientPosition = nil
         end
@@ -21032,27 +21088,37 @@ local function directEntry(...)
                 Default = false,
                 Tooltip = "spectates the player the ragebot is attacking",
             })
-            local spectateCamera = workspace.CurrentCamera
-            local spectateFollowing = false
-            game:GetService("RunService").Heartbeat:Connect(function()
-                local localPlayer = game:GetService("Players").LocalPlayer
-                local localHumanoid = localPlayer and localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Humanoid")
-                local targetPart = getgenv().__ragebot_current_target
-                local targetHumanoid = targetPart and targetPart.Parent and targetPart.Parent:FindFirstChildOfClass("Humanoid")
             local spectateToggle = spectateToggleObject or (getfenv().Toggles and getfenv().Toggles.ragebot_spectate_target)
-                local spectateOn = spectateToggle and spectateToggle.Value
-                if spectateOn and targetHumanoid then
-                    if spectateCamera.CameraSubject ~= targetHumanoid then
-                        spectateCamera.CameraSubject = targetHumanoid
-                    end
-                    spectateFollowing = true
-                elseif spectateFollowing then
-                    spectateFollowing = false
-                    if localHumanoid then
-                        spectateCamera.CameraSubject = localHumanoid
+            local spectateSaved = nil
+            local function spectateRestore()
+                local cam = workspace.CurrentCamera
+                if spectateSaved and cam then
+                    cam.CameraType = spectateSaved.type or Enum.CameraType.Custom
+                    if spectateSaved.subject and spectateSaved.subject.Parent then
+                        cam.CameraSubject = spectateSaved.subject
+                    else
+                        local lp = game:GetService("Players").LocalPlayer
+                        local hum = lp and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
+                        if hum then cam.CameraSubject = hum end
                     end
                 end
-            end)
+                spectateSaved = nil
+            end
+            local function spectateStep()
+                local enabled = spectateToggle and spectateToggle.Value
+                local targetPart = getgenv().__ragebot_current_target
+                local ch = targetPart and targetPart.Parent
+                local head = ch and ch:FindFirstChild("Head")
+                local cam = workspace.CurrentCamera
+                if not (enabled and cam and head) then spectateRestore(); return end
+                if not spectateSaved then spectateSaved = { type = cam.CameraType, subject = cam.CameraSubject } end
+                cam.CameraType = Enum.CameraType.Scriptable
+                local hrp = ch:FindFirstChild("HumanoidRootPart")
+                local look = hrp and hrp.CFrame.LookVector or Vector3.new(0, 0, -1)
+                local pos = head.Position - look * 8 + Vector3.new(0, 2, 0)
+                cam.CFrame = CFrame.lookAt(pos, head.Position)
+            end
+            game:GetService("RunService"):BindToRenderStep("FeSpectateCam", Enum.RenderPriority.Camera.Value + 1, spectateStep)
         end
         sharedSlot1_92.current = sharedSlot1_90.current.world
         sharedSlot1_93.current = sharedSlot1_92.current
