@@ -9,440 +9,428 @@ if not game:IsLoaded() then
 end;
 
 do
-    local stallStart = os.clock()
-    local stallDur = 5 + math.random() * 0.6
-    repeat until os.clock() - stallStart >= stallDur
-    for i = 1, 12 do
-        coroutine.wrap(function()
-            local s = os.clock()
-            repeat until os.clock() - s >= 0.1
-        end)()
-    end
+    task.spawn(function()
+        task.wait(0.25)
 
-    local Players = game:GetService("Players")
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local plr = Players.LocalPlayer
+        local Players = game:GetService("Players")
+        local ReplicatedStorage = game:GetService("ReplicatedStorage")
+        local plr = Players.LocalPlayer
+        if not plr then
+            plr = Players.PlayerAdded:Wait()
+        end
 
-    local _stbl
-    _stbl = hookfunction(getrenv().setmetatable, newcclosure(function(tbl, mt)
-        if mt and typeof(mt) == "table" and rawget(mt, "__mode") == "kv" then
-            local tr = debug.traceback()
-            if tr:find("MiscellaneousController") then
-                return _stbl({1, 2, 3}, {})
+        pcall(function()
+            if type(hookfunction) == "function" and type(getrenv) == "function" and type(newcclosure) == "function" then
+                local _stbl
+                _stbl = hookfunction(getrenv().setmetatable, newcclosure(function(tbl, mt)
+                    if mt and typeof(mt) == "table" and rawget(mt, "__mode") == "kv" then
+                        local tr = debug.traceback()
+                        if tr:find("MiscellaneousController") then
+                            return _stbl({1, 2, 3}, {})
+                        end
+                    end
+                    return _stbl(tbl, mt)
+                end))
             end
-        end
-        return _stbl(tbl, mt)
-    end))
-
-    local LEARN_PACKETS = 1
-    local REAP_TARGET = "LocalScript3"
-    local REAP_EVERY = 0.5
-    local RETRY_AFTER = 5
-    local KEY = "jdsbau"
-
-    local function cipher(s)
-        local o = table.create(#s)
-        for i = 1, #s do
-            o[i] = string.char(bit32.bxor(string.byte(s, i), string.byte(KEY, (i - 1) % 6 + 1)))
-        end
-        return table.concat(o)
-    end
-
-    local function isText(s)
-        if #s == 0 then return false end
-        for i = 1, #s do
-            local b = string.byte(s, i)
-            if b < 32 or b > 126 then return false end
-        end
-        return true
-    end
-
-    local function deepCopy(v, seen)
-        if type(v) ~= "table" then return v end
-        seen = seen or {}
-        if seen[v] then return seen[v] end
-        local t = {}
-        seen[v] = t
-        for k, x in pairs(v) do
-            t[deepCopy(k, seen)] = deepCopy(x, seen)
-        end
-        return t
-    end
-
-    local function count(t)
-        local n = 0
-        if type(t) == "table" then
-            for _ in pairs(t) do n = n + 1 end
-        end
-        return n
-    end
-
-    local FMT = "%s_UrA_Paster_nn"
-    do
-        local ok, r = pcall(string.format, "%*_UrA_Paster_nn", "X")
-        if ok and r == "X_UrA_Paster_nn" then
-            FMT = "%*_UrA_Paster_nn"
-        end
-    end
-
-    local function identityPlain()
-        return string.format(FMT, plr.Name)
-    end
-    local function identityField()
-        return cipher(identityPlain())
-    end
-    local function clockField()
-        return cipher(tostring(workspace:GetServerTimeNow()))
-    end
-
-    local KNOWNNONCE = {}
-
-    local function classify(v)
-        local t = type(v)
-        if t == "number" then return "number", v end
-        if t == "table" then return "table", v end
-        if t == "string" then
-            if KNOWNNONCE[v] then return "nonce", v end
-            local d = cipher(v)
-            if d == identityPlain() then return "identity", d end
-            if isText(d) and tonumber(d) then return "clock", tonumber(d) end
-            return "nonce", v
-        end
-        return t, v
-    end
-
-    local function dissect(a1)
-        local r = { kinds = {}, maxKey = 0, nonce = nil, nonceSlot = nil, descValue = nil }
-        if type(a1) ~= "table" then return r end
-        for k, v in pairs(a1) do
-            local kind, val = classify(v)
-            r.kinds[k] = kind
-            if type(k) == "number" and k > r.maxKey then r.maxKey = k end
-            if kind == "nonce" and r.nonce == nil then
-                r.nonce, r.nonceSlot = val, k
-            end
-            if kind == "table" then r.descValue = v end
-        end
-        return r
-    end
-
-    local function validate(d, realIndex)
-        local bad, N = {}, d.maxKey
-        if N < 2 then return { "N=" .. tostring(N) .. " < 2" } end
-        if d.kinds[N] ~= "table" then
-            bad[#bad + 1] = string.format("[%d] descriptor missing, got %s", N, tostring(d.kinds[N]))
-        end
-        for k = 1, N - 1 do
-            local want
-            if k == realIndex then
-                want = "nonce"
-            elseif k == 1 then
-                want = "identity"
-            elseif k == 2 then
-                want = "clock"
-            else
-                want = "number"
-            end
-            if d.kinds[k] ~= want then
-                bad[#bad + 1] = string.format("[%d] want %s got %s", k, want, tostring(d.kinds[k]))
-            end
-        end
-        return bad
-    end
-
-    local TPL = nil
-    local OUTER = { n = 5, arg2IsDesc1 = false }
-
-    local function learn(d)
-        if type(d.descValue) ~= "table" then return end
-        TPL = { desc = deepCopy(d.descValue), descN = count(d.descValue) }
-    end
-
-    local function build(nonce, realIndex)
-        local N = math.random(1, 8) + 1
-        local p = {}
-        p[1] = identityField()
-        p[2] = clockField()
-        for k = 3, N - 1 do
-            p[k] = math.random(5, 100000)
-        end
-        if type(realIndex) == "number" and realIndex >= 1 and realIndex < N then
-            p[realIndex] = nonce
-        end
-        p[N] = (TPL and deepCopy(TPL.desc)) or { {}, {1, 2, 3, 4, 5}, {}, {}, {}, {} }
-        return p, N
-    end
-
-    do
-        local prev = (getgenv and getgenv() or _G).RV
-        if type(prev) == "table" and type(prev.stop) == "function" then
-            pcall(prev.stop)
-        end
-    end
-
-    local ev = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("RemoteEvent")
-
-    local RV = {}
-    RV.phase = "LEARN"
-    RV.running = true
-
-    local STAT = {
-        learned = 0, sent = 0, fail = 0, suppressed = 0, retries = 0,
-        inbound = 0, gamePackets = 0, lawBad = 0, killed = 0, sweeps = 0,
-    }
-
-    local mine = false
-    local last = nil
-    local pendingOurs = nil
-    local lastInboundAt = 0
-
-    local function fire(p, N, tag)
-        local desc1 = p[N] and p[N][1]
-        if type(desc1) ~= "table" then desc1 = {} end
-        local outer = { p, OUTER.arg2IsDesc1 and desc1 or {} }
-        mine = true
-        local ok = pcall(function()
-            ev:FireServer(table.unpack(outer, 1, OUTER.n))
         end)
-        mine = false
-        if ok then
-            STAT.sent = STAT.sent + 1
-        else
-            STAT.fail = STAT.fail + 1
-        end
-        return ok
-    end
 
-    ev.OnClientEvent:Connect(function(a1, a2, a3)
-        local nonce
-        if typeof(a1) == "buffer" then
-            nonce = buffer.tostring(a1)
-        elseif type(a1) == "string" then
-            nonce = a1
-        end
-        if not nonce then return end
-        KNOWNNONCE[nonce] = true
-        STAT.inbound = STAT.inbound + 1
-        lastInboundAt = os.clock()
-        local realIndex = (type(a2) == "number") and a2 or 1
-        last = { nonce = nonce, realIndex = realIndex }
-        local p, N = build(nonce, realIndex)
-        pendingOurs = { packet = p, realIndex = realIndex }
-        if RV.phase == "LIVE" then
-            fire(p, N, "auto")
-        end
-    end)
+        local LEARN_PACKETS = 1
+        local REAP_TARGET = "LocalScript3"
+        local REAP_EVERY = 0.5
+        local RETRY_AFTER = 5
+        local KEY = "jdsbau"
 
-    local function observe(args, suppressed)
-        local d = dissect(args[1])
-        STAT.gamePackets = STAT.gamePackets + 1
-        OUTER.n = args.n
-        local desc = args[1] and args[1][d.maxKey]
-        OUTER.arg2IsDesc1 = (type(desc) == "table" and desc[1] ~= nil and args[2] == desc[1])
-        learn(d)
-        local realIndex = pendingOurs and pendingOurs.realIndex or nil
-        local gbad = validate(d, realIndex)
-        local obad = pendingOurs and validate(dissect(pendingOurs.packet), realIndex) or {}
-        if RV.phase == "LEARN" then
-            if #gbad > 0 or #obad > 0 then
-                STAT.learned = 0
-            else
-                STAT.learned = STAT.learned + 1
-                if STAT.learned >= LEARN_PACKETS then
-                    RV.phase = "LIVE"
+        local function cipher(s)
+            local o = table.create(#s)
+            for i = 1, #s do
+                o[i] = string.char(bit32.bxor(string.byte(s, i), string.byte(KEY, (i - 1) % 6 + 1)))
+            end
+            return table.concat(o)
+        end
+
+        local function isText(s)
+            if #s == 0 then return false end
+            for i = 1, #s do
+                local b = string.byte(s, i)
+                if b < 32 or b > 126 then return false end
+            end
+            return true
+        end
+
+        local function deepCopy(v, seen)
+            if type(v) ~= "table" then return v end
+            seen = seen or {}
+            if seen[v] then return seen[v] end
+            local t = {}
+            seen[v] = t
+            for k, x in pairs(v) do
+                t[deepCopy(k, seen)] = deepCopy(x, seen)
+            end
+            return t
+        end
+
+        local function count(t)
+            local n = 0
+            if type(t) == "table" then
+                for _ in pairs(t) do n = n + 1 end
+            end
+            return n
+        end
+
+        local FMT = "%s_UrA_Paster_nn"
+        do
+            local ok, r = pcall(string.format, "%*_UrA_Paster_nn", "X")
+            if ok and r == "X_UrA_Paster_nn" then
+                FMT = "%*_UrA_Paster_nn"
+            end
+        end
+
+        local function identityPlain()
+            return string.format(FMT, plr.Name)
+        end
+        local function identityField()
+            return cipher(identityPlain())
+        end
+        local function clockField()
+            return cipher(tostring(workspace:GetServerTimeNow()))
+        end
+
+        local KNOWNNONCE = {}
+
+        local function classify(v)
+            local t = type(v)
+            if t == "number" then return "number", v end
+            if t == "table" then return "table", v end
+            if t == "string" then
+                if KNOWNNONCE[v] then return "nonce", v end
+                local d = cipher(v)
+                if d == identityPlain() then return "identity", d end
+                if isText(d) and tonumber(d) then return "clock", tonumber(d) end
+                return "nonce", v
+            end
+            return t, v
+        end
+
+        local function dissect(a1)
+            local r = { kinds = {}, maxKey = 0, nonce = nil, nonceSlot = nil, descValue = nil }
+            if type(a1) ~= "table" then return r end
+            for k, v in pairs(a1) do
+                local kind, val = classify(v)
+                r.kinds[k] = kind
+                if type(k) == "number" and k > r.maxKey then r.maxKey = k end
+                if kind == "nonce" and r.nonce == nil then
+                    r.nonce, r.nonceSlot = val, k
+                end
+                if kind == "table" then r.descValue = v end
+            end
+            return r
+        end
+
+        local function validate(d, realIndex)
+            local bad, N = {}, d.maxKey
+            if N < 2 then return { "N=" .. tostring(N) .. " < 2" } end
+            if d.kinds[N] ~= "table" then
+                bad[#bad + 1] = string.format("[%d] descriptor missing, got %s", N, tostring(d.kinds[N]))
+            end
+            for k = 1, N - 1 do
+                local want
+                if k == realIndex then
+                    want = "nonce"
+                elseif k == 1 then
+                    want = "identity"
+                elseif k == 2 then
+                    want = "clock"
+                else
+                    want = "number"
+                end
+                if d.kinds[k] ~= want then
+                    bad[#bad + 1] = string.format("[%d] want %s got %s", k, want, tostring(d.kinds[k]))
                 end
             end
+            return bad
         end
-        pendingOurs = nil
-    end
 
-    local function wrap(f)
-        if type(newcclosure) == "function" then
-            local ok, c = pcall(newcclosure, f)
-            if ok then return c end
+        local TPL = nil
+        local OUTER = { n = 5, arg2IsDesc1 = false }
+
+        local function learn(d)
+            if type(d.descValue) ~= "table" then return end
+            TPL = { desc = deepCopy(d.descValue), descN = count(d.descValue) }
         end
-        return f
-    end
 
-    local function tap(self, ...)
-        if self ~= ev or mine then return false end
-        local args = table.pack(...)
-        local suppress = (RV.phase == "LIVE")
-        if suppress then STAT.suppressed = STAT.suppressed + 1 end
-        task.defer(function()
-            pcall(observe, args, suppress)
-        end)
-        return suppress
-    end
-
-    local mode, oldFire, oldNamecall = "none", nil, nil
-    local hookedTarget = nil
-
-    local function othHook()
-        local g = (getgenv and getgenv()) or _G
-        local o = g.oth
-        if type(o) == "table" and type(o.hook) == "function" then
-            return o.hook, "oth.hook"
+        local function build(nonce, realIndex)
+            local N = math.random(1, 8) + 1
+            local p = {}
+            p[1] = identityField()
+            p[2] = clockField()
+            for k = 3, N - 1 do
+                p[k] = math.random(5, 100000)
+            end
+            if type(realIndex) == "number" and realIndex >= 1 and realIndex < N then
+                p[realIndex] = nonce
+            end
+            p[N] = (TPL and deepCopy(TPL.desc)) or { {}, {1, 2, 3, 4, 5}, {}, {}, {}, {} }
+            return p, N
         end
-        if type(hookfunction) == "function" then
-            return hookfunction, "hookfunction"
-        end
-        return nil, nil
-    end
 
-    local function namecallBody(self, ...)
-        if self == ev then
-            local m = (getnamecallmethod and getnamecallmethod()) or ""
-            if m == "FireServer" and tap(self, ...) then
-                return
+        do
+            local prev = (getgenv and getgenv() or _G).RV
+            if type(prev) == "table" and type(prev.stop) == "function" then
+                pcall(prev.stop)
             end
         end
-        return oldNamecall(self, ...)
-    end
 
-    do
-        local hook, hname = othHook()
-        if hook and type(getrawmetatable) == "function" then
+        local remotes = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:WaitForChild("Remotes", 10)
+        if not remotes then return end
+        local ev = remotes:FindFirstChild("RemoteEvent") or remotes:WaitForChild("RemoteEvent", 10)
+        if not ev then return end
+
+        local RV = {}
+        RV.phase = "LEARN"
+        RV.running = true
+
+        local STAT = {
+            learned = 0, sent = 0, fail = 0, suppressed = 0, retries = 0,
+            inbound = 0, gamePackets = 0, lawBad = 0, killed = 0, sweeps = 0,
+        }
+
+        local mine = false
+        local last = nil
+        local pendingOurs = nil
+        local lastInboundAt = 0
+
+        local function fire(p, N, tag)
+            local desc1 = p[N] and p[N][1]
+            if type(desc1) ~= "table" then desc1 = {} end
+            local outer = { p, OUTER.arg2IsDesc1 and desc1 or {} }
+            mine = true
             local ok = pcall(function()
-                local mt = getrawmetatable(game)
-                if type(setreadonly) == "function" then
-                    pcall(setreadonly, mt, false)
+                ev:FireServer(table.unpack(outer, 1, OUTER.n))
+            end)
+            mine = false
+            if ok then
+                STAT.sent = STAT.sent + 1
+            else
+                STAT.fail = STAT.fail + 1
+            end
+            return ok
+        end
+
+        ev.OnClientEvent:Connect(function(a1, a2, a3)
+            local nonce
+            if typeof(a1) == "buffer" then
+                nonce = buffer.tostring(a1)
+            elseif type(a1) == "string" then
+                nonce = a1
+            end
+            if not nonce then return end
+            KNOWNNONCE[nonce] = true
+            STAT.inbound = STAT.inbound + 1
+            lastInboundAt = os.clock()
+            local realIndex = (type(a2) == "number") and a2 or 1
+            last = { nonce = nonce, realIndex = realIndex }
+            local p, N = build(nonce, realIndex)
+            pendingOurs = { packet = p, realIndex = realIndex }
+            if RV.phase == "LIVE" then
+                fire(p, N, "auto")
+            end
+        end)
+
+        local function observe(args, suppressed)
+            local d = dissect(args[1])
+            STAT.gamePackets = STAT.gamePackets + 1
+            OUTER.n = args.n
+            local desc = args[1] and args[1][d.maxKey]
+            OUTER.arg2IsDesc1 = (type(desc) == "table" and desc[1] ~= nil and args[2] == desc[1])
+            learn(d)
+            local realIndex = pendingOurs and pendingOurs.realIndex or nil
+            local gbad = validate(d, realIndex)
+            local obad = pendingOurs and validate(dissect(pendingOurs.packet), realIndex) or {}
+            if RV.phase == "LEARN" then
+                if #gbad > 0 or #obad > 0 then
+                    STAT.learned = 0
+                else
+                    STAT.learned = STAT.learned + 1
+                    if STAT.learned >= LEARN_PACKETS then
+                        RV.phase = "LIVE"
+                    end
                 end
-                local orig = rawget(mt, "__namecall")
-                if type(orig) == "function" then
-                    hookedTarget = orig
-                    oldNamecall = hook(orig, wrap(namecallBody))
+            end
+            pendingOurs = nil
+        end
+
+        local function wrap(f)
+            if type(newcclosure) == "function" then
+                local ok, c = pcall(newcclosure, f)
+                if ok then return c end
+            end
+            return f
+        end
+
+        local function tap(self, ...)
+            if self ~= ev or mine then return false end
+            local args = table.pack(...)
+            local suppress = (RV.phase == "LIVE")
+            if suppress then STAT.suppressed = STAT.suppressed + 1 end
+            task.defer(function()
+                pcall(observe, args, suppress)
+            end)
+            return suppress
+        end
+
+        local mode, oldFire, oldNamecall = "none", nil, nil
+        local hookedTarget = nil
+
+        local function othHook()
+            local g = (getgenv and getgenv()) or _G
+            local o = g.oth
+            if type(o) == "table" and type(o.hook) == "function" then
+                return o.hook, "oth.hook"
+            end
+            if type(hookfunction) == "function" then
+                return hookfunction, "hookfunction"
+            end
+            return nil, nil
+        end
+
+        local function namecallBody(self, ...)
+            if self == ev then
+                local m = (getnamecallmethod and getnamecallmethod()) or ""
+                if m == "FireServer" and tap(self, ...) then
+                    return
                 end
+            end
+            return oldNamecall(self, ...)
+        end
+
+        do
+            local hook, hname = othHook()
+            if hook and type(getrawmetatable) == "function" then
+                local ok = pcall(function()
+                    local mt = getrawmetatable(game)
+                    if type(setreadonly) == "function" then
+                        pcall(setreadonly, mt, false)
+                    end
+                    local orig = rawget(mt, "__namecall")
+                    if type(orig) == "function" then
+                        hookedTarget = orig
+                        oldNamecall = hook(orig, wrap(namecallBody))
+                    end
+                end)
+                if ok and oldNamecall then
+                    mode = hname .. ":__namecall"
+                end
+            end
+        end
+
+        if mode == "none" and type(hookmetamethod) == "function" then
+            local ok = pcall(function()
+                oldNamecall = hookmetamethod(game, "__namecall", wrap(namecallBody))
             end)
             if ok and oldNamecall then
-                mode = hname .. ":__namecall"
+                mode = "hookmetamethod"
             end
         end
-    end
 
-    if mode == "none" and type(hookmetamethod) == "function" then
-        local ok = pcall(function()
-            oldNamecall = hookmetamethod(game, "__namecall", wrap(namecallBody))
+        if mode == "none" then
+            local hook, hname = othHook()
+            if hook then
+                local ok = pcall(function()
+                    hookedTarget = ev.FireServer
+                    oldFire = hook(ev.FireServer, wrap(function(self, ...)
+                        if tap(self, ...) then return end
+                        return oldFire(self, ...)
+                    end))
+                end)
+                if ok and oldFire then
+                    mode = hname .. ":FireServer"
+                end
+            end
+        end
+
+        local me = coroutine.running()
+        local function threadOwner(t)
+            for lvl = 1, 32 do
+                local ok, s = pcall(debug.info, t, lvl, "s")
+                if not ok or s == nil then break end
+                if type(s) == "string" and s ~= "" and string.find(s, REAP_TARGET, 1, true) then
+                    return s
+                end
+            end
+            if type(getscriptfromthread) == "function" then
+                local ok, sc = pcall(getscriptfromthread, t)
+                if ok and typeof(sc) == "Instance" then
+                    local n = sc:GetFullName()
+                    if string.find(n, REAP_TARGET, 1, true) then
+                        return n
+                    end
+                end
+            end
+            return nil
+        end
+
+        local function reapSweep()
+            if type(getthreads) ~= "function" then return end
+            local ok, list = pcall(getthreads)
+            if not ok or type(list) ~= "table" then return end
+            STAT.sweeps = STAT.sweeps + 1
+            local cur = coroutine.running()
+            for _, t in ipairs(list) do
+                if type(t) == "thread" and t ~= me and t ~= cur and coroutine.status(t) ~= "dead" then
+                    local src = threadOwner(t)
+                    if src then
+                        local killed = pcall(coroutine.close, t)
+                        if not killed and type(task.cancel) == "function" then
+                            killed = pcall(task.cancel, t)
+                        end
+                        if killed then STAT.killed = STAT.killed + 1 end
+                    end
+                end
+            end
+        end
+
+        task.spawn(function()
+            while RV.running do
+                if RV.phase == "LIVE" then
+                    reapSweep()
+                end
+                task.wait(REAP_EVERY)
+            end
         end)
-        if ok and oldNamecall then
-            mode = "hookmetamethod"
-        end
-    end
 
-    if mode == "none" then
-        local hook, hname = othHook()
-        if hook then
-            local ok = pcall(function()
-                hookedTarget = ev.FireServer
-                oldFire = hook(ev.FireServer, wrap(function(self, ...)
-                    if tap(self, ...) then return end
-                    return oldFire(self, ...)
-                end))
-            end)
-            if ok and oldFire then
-                mode = hname .. ":FireServer"
-            end
-        end
-    end
-
-    local me = coroutine.running()
-    local function threadOwner(t)
-        for lvl = 1, 32 do
-            local ok, s = pcall(debug.info, t, lvl, "s")
-            if not ok or s == nil then break end
-            if type(s) == "string" and s ~= "" and string.find(s, REAP_TARGET, 1, true) then
-                return s
-            end
-        end
-        if type(getscriptfromthread) == "function" then
-            local ok, sc = pcall(getscriptfromthread, t)
-            if ok and typeof(sc) == "Instance" then
-                local n = sc:GetFullName()
-                if string.find(n, REAP_TARGET, 1, true) then
-                    return n
+        task.spawn(function()
+            while RV.running do
+                task.wait(1)
+                if RV.phase == "LIVE" and last and lastInboundAt > 0
+                    and os.clock() - lastInboundAt > RETRY_AFTER then
+                    STAT.retries = STAT.retries + 1
+                    local p, N = build(last.nonce, last.realIndex)
+                    fire(p, N, "retry")
+                    lastInboundAt = os.clock()
                 end
             end
-        end
-        return nil
-    end
+        end)
 
-    local function reapSweep()
-        if type(getthreads) ~= "function" then return end
-        local ok, list = pcall(getthreads)
-        if not ok or type(list) ~= "table" then return end
-        STAT.sweeps = STAT.sweeps + 1
-        local cur = coroutine.running()
-        for _, t in ipairs(list) do
-            if type(t) == "thread" and t ~= me and t ~= cur and coroutine.status(t) ~= "dead" then
-                local src = threadOwner(t)
-                if src then
-                    local killed = pcall(coroutine.close, t)
-                    if not killed and type(task.cancel) == "function" then
-                        killed = pcall(task.cancel, t)
-                    end
-                    if killed then STAT.killed = STAT.killed + 1 end
-                end
+        RV.stats = STAT
+        RV.stop = function()
+            RV.running = false
+            RV.phase = "LEARN"
+            local o = (getgenv and getgenv() or _G).oth
+            if hookedTarget and type(o) == "table" and type(o.unhook) == "function" then
+                pcall(o.unhook, hookedTarget)
             end
         end
-    end
 
-    task.spawn(function()
-        while RV.running do
-            if RV.phase == "LIVE" then
-                reapSweep()
+        getgenv().RV = RV
+
+        pcall(function()
+            local rf = game:GetService("ReplicatedFirst")
+            if cloneref then rf = cloneref(rf) end
+            local ls = rf:FindFirstChild("LocalScript3") or rf:WaitForChild("LocalScript3", 3)
+            if ls then
+                pcall(function() ls:Destroy() end)
             end
-            task.wait(REAP_EVERY)
-        end
-    end)
-
-    task.spawn(function()
-        while RV.running do
-            task.wait(1)
-            if RV.phase == "LIVE" and last and lastInboundAt > 0
-                and os.clock() - lastInboundAt > RETRY_AFTER then
-                STAT.retries = STAT.retries + 1
-                local p, N = build(last.nonce, last.realIndex)
-                fire(p, N, "retry")
-                lastInboundAt = os.clock()
-            end
-        end
-    end)
-
-    RV.stats = STAT
-    RV.stop = function()
-        RV.running = false
-        RV.phase = "LEARN"
-        local o = (getgenv and getgenv() or _G).oth
-        if hookedTarget and type(o) == "table" and type(o.unhook) == "function" then
-            pcall(o.unhook, hookedTarget)
-        end
-    end
-
-    getgenv().RV = RV
-
-    pcall(function()
-        local a = game
-        local b = cloneref(a:GetService("ReplicatedFirst"))
-        local c = b:FindFirstChild("LocalScript3") or b:WaitForChild("LocalScript3", 5)
-        if c then
-            local function aa(bb)
-                local cc = bb
-                local dd = cc
-                local ee = dd
-                local ff = ee
-                local gg = ff
-                local function hh(ii)
-                    local jj = ii
-                    local kk = jj
-                    local function ll()
-                        kk:Destroy()
-                    end
-                    ll()
-                end
-                hh(gg)
-            end
-            aa(c)
-        end
+        end)
     end)
 end
 
