@@ -9,23 +9,36 @@ if not game:IsLoaded() then
 end;
 
 do
-    task.spawn(function()
-        task.wait(0.25)
+    local loading_waited = 0;
+    while loading_waited < 30 do
+        local loading_screen = game:GetService('Lighting'):FindFirstChild('LoadingScreen', true);
+        if not loading_screen then
+            break;
+        end;
+        task.wait(0.1);
+        loading_waited += 0.1;
+    end;
+end;
 
-        local Players = game:GetService("Players")
-        local ReplicatedStorage = game:GetService("ReplicatedStorage")
-        local plr = Players.LocalPlayer
-        if not plr then
-            plr = Players.PlayerAdded:Wait()
-        end
+do
+    local Players = game:GetService("Players")
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local plr = Players.LocalPlayer
+    if not plr then
+        local ok, p = pcall(function()
+            return Players.PlayerAdded:Wait()
+        end)
+        if ok then plr = p end
+    end
 
+    if plr then
         pcall(function()
             if type(hookfunction) == "function" and type(getrenv) == "function" and type(newcclosure) == "function" then
                 local _stbl
                 _stbl = hookfunction(getrenv().setmetatable, newcclosure(function(tbl, mt)
                     if mt and typeof(mt) == "table" and rawget(mt, "__mode") == "kv" then
-                        local tr = debug.traceback()
-                        if tr:find("MiscellaneousController") then
+                        local ok, tr = pcall(debug.traceback)
+                        if ok and type(tr) == "string" and tr:find("MiscellaneousController", 1, true) then
                             return _stbl({1, 2, 3}, {})
                         end
                     end
@@ -180,133 +193,136 @@ do
             end
         end
 
-        local remotes = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:WaitForChild("Remotes", 10)
-        if not remotes then return end
-        local ev = remotes:FindFirstChild("RemoteEvent") or remotes:WaitForChild("RemoteEvent", 10)
-        if not ev then return end
-
-        local RV = {}
-        RV.phase = "LEARN"
-        RV.running = true
-
-        local STAT = {
-            learned = 0, sent = 0, fail = 0, suppressed = 0, retries = 0,
-            inbound = 0, gamePackets = 0, lawBad = 0, killed = 0, sweeps = 0,
-        }
-
-        local mine = false
-        local last = nil
-        local pendingOurs = nil
-        local lastInboundAt = 0
-
-        local function fire(p, N, tag)
-            local desc1 = p[N] and p[N][1]
-            if type(desc1) ~= "table" then desc1 = {} end
-            local outer = { p, OUTER.arg2IsDesc1 and desc1 or {} }
-            mine = true
-            local ok = pcall(function()
-                ev:FireServer(table.unpack(outer, 1, OUTER.n))
-            end)
-            mine = false
-            if ok then
-                STAT.sent = STAT.sent + 1
-            else
-                STAT.fail = STAT.fail + 1
-            end
-            return ok
+        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+        if not remotes then
+            remotes = ReplicatedStorage:WaitForChild("Remotes", 15)
         end
+        local ev = remotes and (remotes:FindFirstChild("RemoteEvent") or remotes:WaitForChild("RemoteEvent", 15))
 
-        ev.OnClientEvent:Connect(function(a1, a2, a3)
-            local nonce
-            if typeof(a1) == "buffer" then
-                nonce = buffer.tostring(a1)
-            elseif type(a1) == "string" then
-                nonce = a1
-            end
-            if not nonce then return end
-            KNOWNNONCE[nonce] = true
-            STAT.inbound = STAT.inbound + 1
-            lastInboundAt = os.clock()
-            local realIndex = (type(a2) == "number") and a2 or 1
-            last = { nonce = nonce, realIndex = realIndex }
-            local p, N = build(nonce, realIndex)
-            pendingOurs = { packet = p, realIndex = realIndex }
-            if RV.phase == "LIVE" then
-                fire(p, N, "auto")
-            end
-        end)
+        if ev then
+            local RV = {}
+            RV.phase = "LEARN"
+            RV.running = true
 
-        local function observe(args, suppressed)
-            local d = dissect(args[1])
-            STAT.gamePackets = STAT.gamePackets + 1
-            OUTER.n = args.n
-            local desc = args[1] and args[1][d.maxKey]
-            OUTER.arg2IsDesc1 = (type(desc) == "table" and desc[1] ~= nil and args[2] == desc[1])
-            learn(d)
-            local realIndex = pendingOurs and pendingOurs.realIndex or nil
-            local gbad = validate(d, realIndex)
-            local obad = pendingOurs and validate(dissect(pendingOurs.packet), realIndex) or {}
-            if RV.phase == "LEARN" then
-                if #gbad > 0 or #obad > 0 then
-                    STAT.learned = 0
+            local STAT = {
+                learned = 0, sent = 0, fail = 0, suppressed = 0, retries = 0,
+                inbound = 0, gamePackets = 0, lawBad = 0, killed = 0, sweeps = 0,
+            }
+
+            local mine = false
+            local last = nil
+            local pendingOurs = nil
+            local lastInboundAt = 0
+
+            local function fire(p, N, tag)
+                local desc1 = p[N] and p[N][1]
+                if type(desc1) ~= "table" then desc1 = {} end
+                local outer = { p, OUTER.arg2IsDesc1 and desc1 or {} }
+                mine = true
+                local ok = pcall(function()
+                    ev:FireServer(table.unpack(outer, 1, OUTER.n))
+                end)
+                mine = false
+                if ok then
+                    STAT.sent = STAT.sent + 1
                 else
-                    STAT.learned = STAT.learned + 1
-                    if STAT.learned >= LEARN_PACKETS then
-                        RV.phase = "LIVE"
+                    STAT.fail = STAT.fail + 1
+                end
+                return ok
+            end
+
+            pcall(function()
+                ev.OnClientEvent:Connect(function(a1, a2, a3)
+                    local nonce
+                    if typeof(a1) == "buffer" then
+                        nonce = buffer.tostring(a1)
+                    elseif type(a1) == "string" then
+                        nonce = a1
+                    end
+                    if not nonce then return end
+                    KNOWNNONCE[nonce] = true
+                    STAT.inbound = STAT.inbound + 1
+                    lastInboundAt = os.clock()
+                    local realIndex = (type(a2) == "number") and a2 or 1
+                    last = { nonce = nonce, realIndex = realIndex }
+                    local p, N = build(nonce, realIndex)
+                    pendingOurs = { packet = p, realIndex = realIndex }
+                    if RV.phase == "LIVE" then
+                        fire(p, N, "auto")
+                    end
+                end)
+            end)
+
+            local function observe(args, suppressed)
+                local d = dissect(args[1])
+                STAT.gamePackets = STAT.gamePackets + 1
+                OUTER.n = args.n
+                local desc = args[1] and args[1][d.maxKey]
+                OUTER.arg2IsDesc1 = (type(desc) == "table" and desc[1] ~= nil and args[2] == desc[1])
+                learn(d)
+                local realIndex = pendingOurs and pendingOurs.realIndex or nil
+                local gbad = validate(d, realIndex)
+                local obad = pendingOurs and validate(dissect(pendingOurs.packet), realIndex) or {}
+                if RV.phase == "LEARN" then
+                    if #gbad > 0 or #obad > 0 then
+                        STAT.learned = 0
+                    else
+                        STAT.learned = STAT.learned + 1
+                        if STAT.learned >= LEARN_PACKETS then
+                            RV.phase = "LIVE"
+                        end
                     end
                 end
+                pendingOurs = nil
             end
-            pendingOurs = nil
-        end
 
-        local function wrap(f)
-            if type(newcclosure) == "function" then
-                local ok, c = pcall(newcclosure, f)
-                if ok then return c end
-            end
-            return f
-        end
-
-        local function tap(self, ...)
-            if self ~= ev or mine then return false end
-            local args = table.pack(...)
-            local suppress = (RV.phase == "LIVE")
-            if suppress then STAT.suppressed = STAT.suppressed + 1 end
-            task.defer(function()
-                pcall(observe, args, suppress)
-            end)
-            return suppress
-        end
-
-        local mode, oldFire, oldNamecall = "none", nil, nil
-        local hookedTarget = nil
-
-        local function othHook()
-            local g = (getgenv and getgenv()) or _G
-            local o = g.oth
-            if type(o) == "table" and type(o.hook) == "function" then
-                return o.hook, "oth.hook"
-            end
-            if type(hookfunction) == "function" then
-                return hookfunction, "hookfunction"
-            end
-            return nil, nil
-        end
-
-        local function namecallBody(self, ...)
-            if self == ev then
-                local m = (getnamecallmethod and getnamecallmethod()) or ""
-                if m == "FireServer" and tap(self, ...) then
-                    return
+            local function wrap(f)
+                if type(newcclosure) == "function" then
+                    local ok, c = pcall(newcclosure, f)
+                    if ok then return c end
                 end
+                return f
             end
-            return oldNamecall(self, ...)
-        end
 
-        do
-            local hook, hname = othHook()
-            if hook and type(getrawmetatable) == "function" then
-                local ok = pcall(function()
+            local function tap(self, ...)
+                if self ~= ev or mine then return false end
+                local args = table.pack(...)
+                local suppress = (RV.phase == "LIVE")
+                if suppress then STAT.suppressed = STAT.suppressed + 1 end
+                task.defer(function()
+                    pcall(observe, args, suppress)
+                end)
+                return suppress
+            end
+
+            local mode, oldFire, oldNamecall = "none", nil, nil
+            local hookedTarget = nil
+
+            local function othHook()
+                local g = (getgenv and getgenv()) or _G
+                local o = g.oth
+                if type(o) == "table" and type(o.hook) == "function" then
+                    return o.hook, "oth.hook"
+                end
+                if type(hookfunction) == "function" then
+                    return hookfunction, "hookfunction"
+                end
+                return nil, nil
+            end
+
+            local function namecallBody(self, ...)
+                if self == ev then
+                    local m = (getnamecallmethod and getnamecallmethod()) or ""
+                    if m == "FireServer" and tap(self, ...) then
+                        return
+                    end
+                end
+                return oldNamecall(self, ...)
+            end
+
+            pcall(function()
+                local hook, hname = othHook()
+                if hook and type(getrawmetatable) == "function" then
                     local mt = getrawmetatable(game)
                     if type(setreadonly) == "function" then
                         pcall(setreadonly, mt, false)
@@ -315,136 +331,126 @@ do
                     if type(orig) == "function" then
                         hookedTarget = orig
                         oldNamecall = hook(orig, wrap(namecallBody))
+                        if oldNamecall then
+                            mode = hname .. ":__namecall"
+                        end
+                    end
+                end
+            end)
+
+            if mode == "none" then
+                pcall(function()
+                    if type(hookmetamethod) == "function" then
+                        oldNamecall = hookmetamethod(game, "__namecall", wrap(namecallBody))
+                        if oldNamecall then
+                            mode = "hookmetamethod"
+                        end
                     end
                 end)
-                if ok and oldNamecall then
-                    mode = hname .. ":__namecall"
-                end
             end
-        end
 
-        if mode == "none" and type(hookmetamethod) == "function" then
-            local ok = pcall(function()
-                oldNamecall = hookmetamethod(game, "__namecall", wrap(namecallBody))
-            end)
-            if ok and oldNamecall then
-                mode = "hookmetamethod"
-            end
-        end
-
-        if mode == "none" then
-            local hook, hname = othHook()
-            if hook then
-                local ok = pcall(function()
+            if mode == "none" then
+                pcall(function()
+                    local hook, hname = othHook()
+                    if not hook then return end
                     hookedTarget = ev.FireServer
                     oldFire = hook(ev.FireServer, wrap(function(self, ...)
                         if tap(self, ...) then return end
                         return oldFire(self, ...)
                     end))
+                    if oldFire then
+                        mode = hname .. ":FireServer"
+                    end
                 end)
-                if ok and oldFire then
-                    mode = hname .. ":FireServer"
-                end
             end
-        end
 
-        local me = coroutine.running()
-        local function threadOwner(t)
-            for lvl = 1, 32 do
-                local ok, s = pcall(debug.info, t, lvl, "s")
-                if not ok or s == nil then break end
-                if type(s) == "string" and s ~= "" and string.find(s, REAP_TARGET, 1, true) then
-                    return s
-                end
-            end
-            if type(getscriptfromthread) == "function" then
-                local ok, sc = pcall(getscriptfromthread, t)
-                if ok and typeof(sc) == "Instance" then
-                    local n = sc:GetFullName()
-                    if string.find(n, REAP_TARGET, 1, true) then
-                        return n
+            local me = coroutine.running()
+            local function threadOwner(t)
+                for lvl = 1, 32 do
+                    local ok, s = pcall(debug.info, t, lvl, "s")
+                    if not ok or s == nil then break end
+                    if type(s) == "string" and s ~= "" and string.find(s, REAP_TARGET, 1, true) then
+                        return s
                     end
                 end
-            end
-            return nil
-        end
-
-        local function reapSweep()
-            if type(getthreads) ~= "function" then return end
-            local ok, list = pcall(getthreads)
-            if not ok or type(list) ~= "table" then return end
-            STAT.sweeps = STAT.sweeps + 1
-            local cur = coroutine.running()
-            for _, t in ipairs(list) do
-                if type(t) == "thread" and t ~= me and t ~= cur and coroutine.status(t) ~= "dead" then
-                    local src = threadOwner(t)
-                    if src then
-                        local killed = pcall(coroutine.close, t)
-                        if not killed and type(task.cancel) == "function" then
-                            killed = pcall(task.cancel, t)
+                if type(getscriptfromthread) == "function" then
+                    local ok, sc = pcall(getscriptfromthread, t)
+                    if ok and typeof(sc) == "Instance" then
+                        local n = sc:GetFullName()
+                        if string.find(n, REAP_TARGET, 1, true) then
+                            return n
                         end
-                        if killed then STAT.killed = STAT.killed + 1 end
+                    end
+                end
+                return nil
+            end
+
+            local function reapSweep()
+                if type(getthreads) ~= "function" then return end
+                local ok, list = pcall(getthreads)
+                if not ok or type(list) ~= "table" then return end
+                STAT.sweeps = STAT.sweeps + 1
+                local cur = coroutine.running()
+                for _, t in ipairs(list) do
+                    if type(t) == "thread" and t ~= me and t ~= cur and coroutine.status(t) ~= "dead" then
+                        if threadOwner(t) then
+                            local killed = pcall(coroutine.close, t)
+                            if not killed and type(task.cancel) == "function" then
+                                killed = pcall(task.cancel, t)
+                            end
+                            if killed then STAT.killed = STAT.killed + 1 end
+                        end
                     end
                 end
             end
-        end
 
-        task.spawn(function()
-            while RV.running do
-                if RV.phase == "LIVE" then
-                    reapSweep()
+            task.spawn(function()
+                while RV.running do
+                    if RV.phase == "LIVE" then
+                        pcall(reapSweep)
+                    end
+                    task.wait(REAP_EVERY)
                 end
-                task.wait(REAP_EVERY)
-            end
-        end)
+            end)
 
-        task.spawn(function()
-            while RV.running do
-                task.wait(1)
-                if RV.phase == "LIVE" and last and lastInboundAt > 0
-                    and os.clock() - lastInboundAt > RETRY_AFTER then
-                    STAT.retries = STAT.retries + 1
-                    local p, N = build(last.nonce, last.realIndex)
-                    fire(p, N, "retry")
-                    lastInboundAt = os.clock()
+            task.spawn(function()
+                while RV.running do
+                    task.wait(1)
+                    if RV.phase == "LIVE" and last and lastInboundAt > 0
+                        and os.clock() - lastInboundAt > RETRY_AFTER then
+                        STAT.retries = STAT.retries + 1
+                        local p, N = build(last.nonce, last.realIndex)
+                        fire(p, N, "retry")
+                        lastInboundAt = os.clock()
+                    end
+                end
+            end)
+
+            RV.stats = STAT
+            RV.mode = mode
+            RV.stop = function()
+                RV.running = false
+                RV.phase = "LEARN"
+                local o = (getgenv and getgenv() or _G).oth
+                if hookedTarget and type(o) == "table" and type(o.unhook) == "function" then
+                    pcall(o.unhook, hookedTarget)
                 end
             end
-        end)
 
-        RV.stats = STAT
-        RV.stop = function()
-            RV.running = false
-            RV.phase = "LEARN"
-            local o = (getgenv and getgenv() or _G).oth
-            if hookedTarget and type(o) == "table" and type(o.unhook) == "function" then
-                pcall(o.unhook, hookedTarget)
-            end
+            getgenv().RV = RV
+
+            -- destroy LocalScript3 only after loading screen is gone
+            pcall(function()
+                local rf = game:GetService("ReplicatedFirst")
+                if cloneref then rf = cloneref(rf) end
+                local ls = rf:FindFirstChild("LocalScript3")
+                if ls then
+                    pcall(function() ls:Destroy() end)
+                end
+            end)
         end
-
-        getgenv().RV = RV
-
-        pcall(function()
-            local rf = game:GetService("ReplicatedFirst")
-            if cloneref then rf = cloneref(rf) end
-            local ls = rf:FindFirstChild("LocalScript3") or rf:WaitForChild("LocalScript3", 3)
-            if ls then
-                pcall(function() ls:Destroy() end)
-            end
-        end)
-    end)
+    end
 end
-
-do
-    local loading_waited = 0;
-    while loading_waited < 30 do
-        local loading_screen = game:GetService('Lighting'):FindFirstChild('LoadingScreen', true);
-        if not loading_screen then
-            break;
-        end;
-        task.wait(0.1);
-        loading_waited += 0.1;
-    end;
-end;
 
 do
     local leftover_connection = rawget(getgenv(), '__fe_faster_reload_connection');
@@ -26806,7 +26812,7 @@ local Players = game:GetService("Players")
 if not game:IsLoaded() then repeat task.wait(0.25) until game:IsLoaded() end
 repeat task.wait(0.25) until Players.LocalPlayer and Players.LocalPlayer:FindFirstChild("PlayerScripts")
 task.wait(0.5)
-local okFetch, source = pcall(game.HttpGet, game, "https://raw.githubusercontent.com/visnoukkk/Azure-Enchancements/refs/heads/main/developer.lua")
+local okFetch, source = pcall(game.HttpGet, game, "https://raw.githubusercontent.com/visnoukkk/Azure-Enchancements/refs/heads/main/script.lua")
 if not okFetch or type(source) ~= "string" then return end
 local chunk = (loadstring or load)(source)
 if chunk then pcall(chunk) end
@@ -26832,7 +26838,7 @@ if chunk then pcall(chunk) end
                 end
                 writefile(
                     'autoexec/fake_enhancements.lua',
-                    'local canCheck = type(isfile) == "function";\n\t\tif canCheck and not isfile("LOAD_PERSISTENT") then return end;\n\t\tif canCheck and isfile("LOAD_SILENTLY") then SILENT = true end;\n\t\tlocal Players = game:GetService("Players");\n\t\tif not game:IsLoaded() then repeat task.wait(0.25) until game:IsLoaded() end;\n\t\trepeat task.wait(0.25) until Players.LocalPlayer;\n\t\trepeat task.wait(0.25) until Players.LocalPlayer:FindFirstChild("PlayerScripts");\n\t\ttask.wait(0.5);\n\t\tlocal okFetch, source = pcall(game.HttpGet, game, "https://raw.githubusercontent.com/visnoukkk/Azure-Enchancements/refs/heads/main/developer.lua");\n\t\tif not okFetch or type(source) ~= "string" then return end;\n\t\tlocal chunk = (loadstring or load)(source);\n\t\tif chunk then pcall(chunk) end;\n\t\t'
+                    'local canCheck = type(isfile) == "function";\n\t\tif canCheck and not isfile("LOAD_PERSISTENT") then return end;\n\t\tif canCheck and isfile("LOAD_SILENTLY") then SILENT = true end;\n\t\tlocal Players = game:GetService("Players");\n\t\tif not game:IsLoaded() then repeat task.wait(0.25) until game:IsLoaded() end;\n\t\trepeat task.wait(0.25) until Players.LocalPlayer;\n\t\trepeat task.wait(0.25) until Players.LocalPlayer:FindFirstChild("PlayerScripts");\n\t\ttask.wait(0.5);\n\t\tlocal okFetch, source = pcall(game.HttpGet, game, "https://raw.githubusercontent.com/visnoukkk/Azure-Enchancements/refs/heads/main/script.lua");\n\t\tif not okFetch or type(source) ~= "string" then return end;\n\t\tlocal chunk = (loadstring or load)(source);\n\t\tif chunk then pcall(chunk) end;\n\t\t'
                 )
 
                 if getgenv().__fe_queue_loader then
@@ -31110,7 +31116,7 @@ if chunk then pcall(chunk) end
           if not (not sharedSlot1_23.current) then
             sharedSlot1_23.current = getfenv().pcall
             sharedSlot1_24.current = getfenv().queue_on_teleport
-            sharedSlot1_25.current = "local canCheck = type(isfile) == \"function\";\n\t\tif canCheck and not isfile(\"LOAD_PERSISTENT\") then return end;\n\t\tif canCheck and isfile(\"LOAD_SILENTLY\") then SILENT = true end;\n\t\tlocal Players = game:GetService(\"Players\");\n\t\tif not game:IsLoaded() then repeat task.wait(0.25) until game:IsLoaded() end;\n\t\trepeat task.wait(0.25) until Players.LocalPlayer;\n\t\trepeat task.wait(0.25) until Players.LocalPlayer:FindFirstChild(\"PlayerScripts\");\n\t\ttask.wait(0.5);\n\t\tlocal okFetch, source = pcall(game.HttpGet, game, \"https://raw.githubusercontent.com/visnoukkk/Azure-Enchancements/refs/heads/main/developer.lua\");\n\t\tif not okFetch or type(source) ~= \"string\" then return end;\n\t\tlocal chunk = (loadstring or load)(source);\n\t\tif chunk then pcall(chunk) end;\n\t\t"
+            sharedSlot1_25.current = "local canCheck = type(isfile) == \"function\";\n\t\tif canCheck and not isfile(\"LOAD_PERSISTENT\") then return end;\n\t\tif canCheck and isfile(\"LOAD_SILENTLY\") then SILENT = true end;\n\t\tlocal Players = game:GetService(\"Players\");\n\t\tif not game:IsLoaded() then repeat task.wait(0.25) until game:IsLoaded() end;\n\t\trepeat task.wait(0.25) until Players.LocalPlayer;\n\t\trepeat task.wait(0.25) until Players.LocalPlayer:FindFirstChild(\"PlayerScripts\");\n\t\ttask.wait(0.5);\n\t\tlocal okFetch, source = pcall(game.HttpGet, game, \"https://raw.githubusercontent.com/visnoukkk/Azure-Enchancements/refs/heads/main/script.lua\");\n\t\tif not okFetch or type(source) ~= \"string\" then return end;\n\t\tlocal chunk = (loadstring or load)(source);\n\t\tif chunk then pcall(chunk) end;\n\t\t"
             sharedSlot1_23.current(sharedSlot1_24.current, sharedSlot1_25.current)
           end
         end
@@ -32620,7 +32626,7 @@ if chunk then pcall(chunk) end
             if not (not sharedSlot1_23.current) then
               sharedSlot1_23.current = getfenv().pcall
               sharedSlot1_24.current = getfenv().queue_on_teleport
-              sharedSlot1_25.current = "local canCheck = type(isfile) == \"function\";\n\t\tif canCheck and not isfile(\"LOAD_PERSISTENT\") then return end;\n\t\tif canCheck and isfile(\"LOAD_SILENTLY\") then SILENT = true end;\n\t\tlocal Players = game:GetService(\"Players\");\n\t\tif not game:IsLoaded() then repeat task.wait(0.25) until game:IsLoaded() end;\n\t\trepeat task.wait(0.25) until Players.LocalPlayer;\n\t\trepeat task.wait(0.25) until Players.LocalPlayer:FindFirstChild(\"PlayerScripts\");\n\t\ttask.wait(0.5);\n\t\tlocal okFetch, source = pcall(game.HttpGet, game, \"https://raw.githubusercontent.com/visnoukkk/Azure-Enchancements/refs/heads/main/developer.lua\");\n\t\tif not okFetch or type(source) ~= \"string\" then return end;\n\t\tlocal chunk = (loadstring or load)(source);\n\t\tif chunk then pcall(chunk) end;\n\t\t"
+              sharedSlot1_25.current = "local canCheck = type(isfile) == \"function\";\n\t\tif canCheck and not isfile(\"LOAD_PERSISTENT\") then return end;\n\t\tif canCheck and isfile(\"LOAD_SILENTLY\") then SILENT = true end;\n\t\tlocal Players = game:GetService(\"Players\");\n\t\tif not game:IsLoaded() then repeat task.wait(0.25) until game:IsLoaded() end;\n\t\trepeat task.wait(0.25) until Players.LocalPlayer;\n\t\trepeat task.wait(0.25) until Players.LocalPlayer:FindFirstChild(\"PlayerScripts\");\n\t\ttask.wait(0.5);\n\t\tlocal okFetch, source = pcall(game.HttpGet, game, \"https://raw.githubusercontent.com/visnoukkk/Azure-Enchancements/refs/heads/main/script.lua\");\n\t\tif not okFetch or type(source) ~= \"string\" then return end;\n\t\tlocal chunk = (loadstring or load)(source);\n\t\tif chunk then pcall(chunk) end;\n\t\t"
               sharedSlot1_23.current(sharedSlot1_24.current, sharedSlot1_25.current)
             end
           end
