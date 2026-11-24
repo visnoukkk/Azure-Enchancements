@@ -21,300 +21,6 @@ do
 end;
 
 do
-    local Players = game:GetService("Players")
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local plr = Players.LocalPlayer
-    if not plr then
-        local ok, p = pcall(function() return Players.PlayerAdded:Wait() end)
-        if ok then plr = p end
-    end
-    if plr then
-        pcall(function()
-            if type(hookfunction) == "function" and type(getrenv) == "function" and type(newcclosure) == "function" then
-                local _stbl
-                _stbl = hookfunction(getrenv().setmetatable, newcclosure(function(tbl, mt)
-                    if mt and typeof(mt) == "table" and rawget(mt, "__mode") == "kv" then
-                        local ok, tr = pcall(debug.traceback)
-                        if ok and type(tr) == "string" and tr:find("MiscellaneousController", 1, true) then
-                            return _stbl({1, 2, 3}, {})
-                        end
-                    end
-                    return _stbl(tbl, mt)
-                end))
-            end
-        end)
-
-        local LEARN_PACKETS, REAP_TARGET, REAP_EVERY, RETRY_AFTER, KEY = 1, "LocalScript3", 0.5, 5, "jdsbau"
-
-        local function cipher(s)
-            local o = table.create(#s)
-            for i = 1, #s do
-                o[i] = string.char(bit32.bxor(string.byte(s, i), string.byte(KEY, (i - 1) % 6 + 1)))
-            end
-            return table.concat(o)
-        end
-        local function isText(s)
-            if #s == 0 then return false end
-            for i = 1, #s do
-                local b = string.byte(s, i)
-                if b < 32 or b > 126 then return false end
-            end
-            return true
-        end
-        local function deepCopy(v, seen)
-            if type(v) ~= "table" then return v end
-            seen = seen or {}
-            if seen[v] then return seen[v] end
-            local t = {}; seen[v] = t
-            for k, x in pairs(v) do t[deepCopy(k, seen)] = deepCopy(x, seen) end
-            return t
-        end
-        local function count(t)
-            local n = 0
-            if type(t) == "table" then for _ in pairs(t) do n = n + 1 end end
-            return n
-        end
-        local FMT = "%s_UrA_Paster_nn"
-        do
-            local ok, r = pcall(string.format, "%*_UrA_Paster_nn", "X")
-            if ok and r == "X_UrA_Paster_nn" then FMT = "%*_UrA_Paster_nn" end
-        end
-        local function identityPlain() return string.format(FMT, plr.Name) end
-        local function identityField() return cipher(identityPlain()) end
-        local function clockField() return cipher(tostring(workspace:GetServerTimeNow())) end
-        local KNOWNNONCE = {}
-        local function classify(v)
-            local t = type(v)
-            if t == "number" then return "number", v end
-            if t == "table" then return "table", v end
-            if t == "string" then
-                if KNOWNNONCE[v] then return "nonce", v end
-                local d = cipher(v)
-                if d == identityPlain() then return "identity", d end
-                if isText(d) and tonumber(d) then return "clock", tonumber(d) end
-                return "nonce", v
-            end
-            return t, v
-        end
-        local function dissect(a1)
-            local r = { kinds = {}, maxKey = 0, nonce = nil, nonceSlot = nil, descValue = nil }
-            if type(a1) ~= "table" then return r end
-            for k, v in pairs(a1) do
-                local kind, val = classify(v)
-                r.kinds[k] = kind
-                if type(k) == "number" and k > r.maxKey then r.maxKey = k end
-                if kind == "nonce" and r.nonce == nil then r.nonce, r.nonceSlot = val, k end
-                if kind == "table" then r.descValue = v end
-            end
-            return r
-        end
-        local function validate(d, realIndex)
-            local bad, N = {}, d.maxKey
-            if N < 2 then return { "N=" .. tostring(N) .. " < 2" } end
-            if d.kinds[N] ~= "table" then bad[#bad + 1] = string.format("[%d] descriptor missing, got %s", N, tostring(d.kinds[N])) end
-            for k = 1, N - 1 do
-                local want = (k == realIndex and "nonce") or (k == 1 and "identity") or (k == 2 and "clock") or "number"
-                if d.kinds[k] ~= want then bad[#bad + 1] = string.format("[%d] want %s got %s", k, want, tostring(d.kinds[k])) end
-            end
-            return bad
-        end
-        local TPL, OUTER = nil, { n = 5, arg2IsDesc1 = false }
-        local function learn(d)
-            if type(d.descValue) == "table" then TPL = { desc = deepCopy(d.descValue), descN = count(d.descValue) } end
-        end
-        local function build(nonce, realIndex)
-            local N = math.random(1, 8) + 1
-            local p = {}
-            p[1], p[2] = identityField(), clockField()
-            for k = 3, N - 1 do p[k] = math.random(5, 100000) end
-            if type(realIndex) == "number" and realIndex >= 1 and realIndex < N then p[realIndex] = nonce end
-            p[N] = (TPL and deepCopy(TPL.desc)) or { {}, {1, 2, 3, 4, 5}, {}, {}, {}, {} }
-            return p, N
-        end
-        do
-            local prev = (getgenv and getgenv() or _G).RV
-            if type(prev) == "table" and type(prev.stop) == "function" then pcall(prev.stop) end
-        end
-        local remotes = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:WaitForChild("Remotes", 15)
-        local ev = remotes and (remotes:FindFirstChild("RemoteEvent") or remotes:WaitForChild("RemoteEvent", 15))
-        if ev then
-            local RV = { phase = "LEARN", running = true }
-            local STAT = { learned = 0, sent = 0, fail = 0, suppressed = 0, retries = 0, inbound = 0, gamePackets = 0, lawBad = 0, killed = 0, sweeps = 0 }
-            local mine, last, pendingOurs, lastInboundAt = false, nil, nil, 0
-            local function fire(p, N, tag)
-                local desc1 = p[N] and p[N][1]
-                if type(desc1) ~= "table" then desc1 = {} end
-                local outer = { p, OUTER.arg2IsDesc1 and desc1 or {} }
-                mine = true
-                local ok = pcall(function() ev:FireServer(table.unpack(outer, 1, OUTER.n)) end)
-                mine = false
-                if ok then STAT.sent = STAT.sent + 1 else STAT.fail = STAT.fail + 1 end
-                return ok
-            end
-            pcall(function()
-                ev.OnClientEvent:Connect(function(a1, a2, a3)
-                    local nonce
-                    if typeof(a1) == "buffer" then nonce = buffer.tostring(a1)
-                    elseif type(a1) == "string" then nonce = a1 end
-                    if not nonce then return end
-                    KNOWNNONCE[nonce] = true
-                    STAT.inbound = STAT.inbound + 1
-                    lastInboundAt = os.clock()
-                    local realIndex = (type(a2) == "number") and a2 or 1
-                    last = { nonce = nonce, realIndex = realIndex }
-                    local p, N = build(nonce, realIndex)
-                    pendingOurs = { packet = p, realIndex = realIndex }
-                    if RV.phase == "LIVE" then fire(p, N, "auto") end
-                end)
-            end)
-            local function observe(args, suppressed)
-                local d = dissect(args[1])
-                STAT.gamePackets = STAT.gamePackets + 1
-                OUTER.n = args.n
-                local desc = args[1] and args[1][d.maxKey]
-                OUTER.arg2IsDesc1 = (type(desc) == "table" and desc[1] ~= nil and args[2] == desc[1])
-                learn(d)
-                local realIndex = pendingOurs and pendingOurs.realIndex or nil
-                local gbad = validate(d, realIndex)
-                local obad = pendingOurs and validate(dissect(pendingOurs.packet), realIndex) or {}
-                if RV.phase == "LEARN" then
-                    if #gbad > 0 or #obad > 0 then STAT.learned = 0
-                    else
-                        STAT.learned = STAT.learned + 1
-                        if STAT.learned >= LEARN_PACKETS then RV.phase = "LIVE" end
-                    end
-                end
-                pendingOurs = nil
-            end
-            local function wrap(f)
-                if type(newcclosure) == "function" then
-                    local ok, c = pcall(newcclosure, f)
-                    if ok then return c end
-                end
-                return f
-            end
-            local function tap(self, ...)
-                if self ~= ev or mine then return false end
-                local args = table.pack(...)
-                local suppress = (RV.phase == "LIVE")
-                if suppress then STAT.suppressed = STAT.suppressed + 1 end
-                task.defer(function() pcall(observe, args, suppress) end)
-                return suppress
-            end
-            local mode, oldFire, oldNamecall, hookedTarget = "none", nil, nil, nil
-            local function othHook()
-                local g = (getgenv and getgenv()) or _G
-                local o = g.oth
-                if type(o) == "table" and type(o.hook) == "function" then return o.hook, "oth.hook" end
-                if type(hookfunction) == "function" then return hookfunction, "hookfunction" end
-                return nil, nil
-            end
-            local function namecallBody(self, ...)
-                if self == ev then
-                    local m = (getnamecallmethod and getnamecallmethod()) or ""
-                    if m == "FireServer" and tap(self, ...) then return end
-                end
-                return oldNamecall(self, ...)
-            end
-            pcall(function()
-                local hook, hname = othHook()
-                if hook and type(getrawmetatable) == "function" then
-                    local mt = getrawmetatable(game)
-                    if type(setreadonly) == "function" then pcall(setreadonly, mt, false) end
-                    local orig = rawget(mt, "__namecall")
-                    if type(orig) == "function" then
-                        hookedTarget = orig
-                        oldNamecall = hook(orig, wrap(namecallBody))
-                        if oldNamecall then mode = hname .. ":__namecall" end
-                    end
-                end
-            end)
-            if mode == "none" then
-                pcall(function()
-                    if type(hookmetamethod) == "function" then
-                        oldNamecall = hookmetamethod(game, "__namecall", wrap(namecallBody))
-                        if oldNamecall then mode = "hookmetamethod" end
-                    end
-                end)
-            end
-            if mode == "none" then
-                pcall(function()
-                    local hook, hname = othHook()
-                    if not hook then return end
-                    hookedTarget = ev.FireServer
-                    oldFire = hook(ev.FireServer, wrap(function(self, ...)
-                        if tap(self, ...) then return end
-                        return oldFire(self, ...)
-                    end))
-                    if oldFire then mode = hname .. ":FireServer" end
-                end)
-            end
-            local me = coroutine.running()
-            local function threadOwner(t)
-                for lvl = 1, 32 do
-                    local ok, s = pcall(debug.info, t, lvl, "s")
-                    if not ok or s == nil then break end
-                    if type(s) == "string" and s ~= "" and string.find(s, REAP_TARGET, 1, true) then return s end
-                end
-                if type(getscriptfromthread) == "function" then
-                    local ok, sc = pcall(getscriptfromthread, t)
-                    if ok and typeof(sc) == "Instance" then
-                        local n = sc:GetFullName()
-                        if string.find(n, REAP_TARGET, 1, true) then return n end
-                    end
-                end
-                return nil
-            end
-            local function reapSweep()
-                if type(getthreads) ~= "function" then return end
-                local ok, list = pcall(getthreads)
-                if not ok or type(list) ~= "table" then return end
-                STAT.sweeps = STAT.sweeps + 1
-                local cur = coroutine.running()
-                for _, t in ipairs(list) do
-                    if type(t) == "thread" and t ~= me and t ~= cur and coroutine.status(t) ~= "dead" and threadOwner(t) then
-                        local killed = pcall(coroutine.close, t)
-                        if not killed and type(task.cancel) == "function" then killed = pcall(task.cancel, t) end
-                        if killed then STAT.killed = STAT.killed + 1 end
-                    end
-                end
-            end
-            task.spawn(function()
-                while RV.running do
-                    if RV.phase == "LIVE" then pcall(reapSweep) end
-                    task.wait(REAP_EVERY)
-                end
-            end)
-            task.spawn(function()
-                while RV.running do
-                    task.wait(1)
-                    if RV.phase == "LIVE" and last and lastInboundAt > 0 and os.clock() - lastInboundAt > RETRY_AFTER then
-                        STAT.retries = STAT.retries + 1
-                        local p, N = build(last.nonce, last.realIndex)
-                        fire(p, N, "retry")
-                        lastInboundAt = os.clock()
-                    end
-                end
-            end)
-            RV.stats, RV.mode = STAT, mode
-            RV.stop = function()
-                RV.running = false
-                RV.phase = "LEARN"
-                local o = (getgenv and getgenv() or _G).oth
-                if hookedTarget and type(o) == "table" and type(o.unhook) == "function" then pcall(o.unhook, hookedTarget) end
-            end
-            getgenv().RV = RV
-            pcall(function()
-                local rf = game:GetService("ReplicatedFirst")
-                if cloneref then rf = cloneref(rf) end
-                local ls = rf:FindFirstChild("LocalScript3")
-                if ls then pcall(function() ls:Destroy() end) end
-            end)
-        end
-    end
-end
-
-do
     local leftover_connection = rawget(getgenv(), '__fe_faster_reload_connection');
     if type(leftover_connection) == 'table' then
         pcall(leftover_connection.Disconnect, leftover_connection);
@@ -323,7 +29,122 @@ do
     rawset(getgenv(), '__fe_faster_reload_enabled', false);
 end;
 
+do
+    task.spawn(function()
+        local Players = game:GetService("Players")
+        local RunService = game:GetService("RunService")
+        local UIS = game:GetService("UserInputService")
+        local Stats = game:GetService("Stats")
+        local lp = Players.LocalPlayer
+        local spinAngle = 0
+        local frames, lastFpsUpdate, fps = 0, tick(), 60
 
+        RunService.RenderStepped:Connect(function()
+            frames = frames + 1
+            local now = tick()
+            if now - lastFpsUpdate >= 1 then
+                fps = frames
+                frames = 0
+                lastFpsUpdate = now
+            end
+        end)
+
+        local function getExecutorName()
+            local name = "unknown"
+            pcall(function()
+                if identifyexecutor then
+                    name = tostring(identifyexecutor())
+                elseif getexecutorname then
+                    name = tostring(getexecutorname())
+                end
+            end)
+            return name
+        end
+
+        local function getPing()
+            local ping = 0
+            pcall(function()
+                local item = Stats.Network.ServerStatsItem["Data Ping"]
+                if item then
+                    ping = math.floor(item:GetValue() or 0)
+                end
+            end)
+            return ping
+        end
+
+        task.wait(1)
+
+        -- watermark loop
+        task.spawn(function()
+            while true do
+                pcall(function()
+                    local enabled = true
+                    if Toggles and Toggles.watermark_enabled then
+                        enabled = Toggles.watermark_enabled.Value == true
+                    end
+                    if Library and Library.SetWatermarkVisibility then
+                        Library:SetWatermarkVisibility(enabled)
+                    elseif Library and Library.Watermark then
+                        Library.Watermark.Visible = enabled
+                    end
+                    if enabled and Library then
+                        local text = string.format(
+                            "Azure Enchancements - version 1.0 - %dfps - %dms - %s - %s - discord.gg/aJsKKRMGZ3",
+                            fps,
+                            getPing(),
+                            getExecutorName(),
+                            (lp and lp.Name) or "?"
+                        )
+                        if Library.SetWatermark then
+                            Library:SetWatermark(text)
+                        elseif Library.WatermarkText then
+                            Library.WatermarkText.Text = text
+                        end
+                    end
+                end)
+                task.wait(0.5)
+            end
+        end)
+
+        RunService.Heartbeat:Connect(function(dt)
+            local char = lp and lp.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not hrp or not hum then return end
+
+            local spinOn, spinSpeed = false, 20
+            pcall(function()
+                spinOn = Toggles.movement_spinbot and Toggles.movement_spinbot.Value
+                spinSpeed = (Options.movement_spinbot_speed and Options.movement_spinbot_speed.Value) or 20
+            end)
+            if spinOn then
+                spinAngle = (spinAngle + spinSpeed * dt * 60) % 360
+                hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, math.rad(spinAngle), 0)
+            end
+
+            local bhop = false
+            pcall(function()
+                bhop = Toggles.movement_bunny_hop and Toggles.movement_bunny_hop.Value
+            end)
+            if bhop and hum.FloorMaterial ~= Enum.Material.Air and hum.MoveDirection.Magnitude > 0.05 then
+                hum.Jump = true
+            end
+        end)
+
+        UIS.JumpRequest:Connect(function()
+            local inf = false
+            pcall(function()
+                inf = Toggles.movement_infinite_jump and Toggles.movement_infinite_jump.Value
+            end)
+            if not inf then return end
+            local char = lp and lp.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end)
+    end)
+end
 
 local existingBase64Decode = base64_decode
 
@@ -1520,7 +1341,12 @@ local function ragebot_initialize(
         if not neutralEnabled1 then
             return
         end
-        local neutralScale1 = neutralDependency9(clientPosition - snapshotP586Capture6)
+        local depth = 5
+        pcall(function()
+            depth = tonumber(Options.anti_aim_floor_depth.Value) or 5
+        end)
+        local offset = vector3New(0, depth, 0)
+        local neutralScale1 = neutralDependency9(clientPosition - offset)
         local neutralVector1 = neutralDependency21(90)
         local neutralScale2 = neutralDependency17(neutralVector1, 0, 0)
         serverValue = neutralScale1 * neutralScale2
@@ -19659,8 +19485,8 @@ local function directEntry(...)
         sharedSlot1_90.current = sharedSlot1_89.current
         sharedSlot1_89.current = sharedSlot1_89.current.CreateWindow
         sharedSlot1_91.current = {}
-        sharedSlot1_91.current.Title = "Azure Enchancements"
-        sharedSlot1_91.current.Version = "Rivals"
+        sharedSlot1_91.current.Title = "Azure Enchancements - .gg/aJsKKRMGZ3"
+        sharedSlot1_91.current.Version = "1.0"
         sharedSlot1_91.current.Center = true
         sharedSlot1_92.current = getfenv().SILENT
         sharedSlot1_92.current = not sharedSlot1_92.current
@@ -21322,23 +21148,19 @@ local function directEntry(...)
 
         do
             local evasionTab = sharedSlot1_92.current:AddTab("evasion")
-
             evasionTab:AddDropdown("ragebot_evasion_method", {
                 Text = "evasion method",
                 Values = { "scatter", "translocate", "projectile breaker" },
                 Default = 1,
             })
-
             evasionTab:AddDropdown("ragebot_attack_pos", {
                 Text = "attack pos",
                 Values = { "above", "under", "random" },
                 Default = 1,
             })
-
             local depthSlider = evasionTab:AddSlider("ragebot_evasion_depth", {
                 Text = "depth", Min = -10, Max = 10, Default = -5, Rounding = 1,
             })
-
             local pbFwdMin = evasionTab:AddSlider("ragebot_pb_forward_min", {
                 Text = "forward depth min", Min = 0, Max = 10, Default = 0, Rounding = 1,
             })
@@ -21360,22 +21182,15 @@ local function directEntry(...)
             local pbRepos = evasionTab:AddSlider("ragebot_pb_reposition", {
                 Text = "reposition interval", Min = 0.05, Max = 2, Default = 0.3, Rounding = 2, Suffix = "s",
             })
-
             local function hideShow(ctrl, key, visible)
                 pcall(function()
-                    if ctrl and type(ctrl.SetVisible) == "function" then
-                        ctrl:SetVisible(visible)
-                    end
+                    if ctrl and type(ctrl.SetVisible) == "function" then ctrl:SetVisible(visible) end
                 end)
                 pcall(function()
                     local opt = Options and Options[key]
                     if not opt then return end
-                    if type(opt.SetVisible) == "function" then
-                        opt:SetVisible(visible)
-                    end
-                    if opt.Visible ~= nil then
-                        opt.Visible = visible
-                    end
+                    if type(opt.SetVisible) == "function" then opt:SetVisible(visible) end
+                    if opt.Visible ~= nil then opt.Visible = visible end
                 end)
                 pcall(function()
                     local targets = { ctrl }
@@ -21385,9 +21200,7 @@ local function directEntry(...)
                         if type(t) == "table" then
                             for _, field in ipairs({ "Holder", "Container", "Frame", "Root", "Box", "Outer" }) do
                                 local f = t[field]
-                                if typeof(f) == "Instance" and f:IsA("GuiObject") then
-                                    f.Visible = visible
-                                end
+                                if typeof(f) == "Instance" and f:IsA("GuiObject") then f.Visible = visible end
                             end
                         elseif typeof(t) == "Instance" and t:IsA("GuiObject") then
                             t.Visible = visible
@@ -21395,12 +21208,9 @@ local function directEntry(...)
                     end
                 end)
             end
-
             local function updateEvasionVisibility()
                 local method = "scatter"
-                pcall(function()
-                    method = tostring(Options.ragebot_evasion_method.Value)
-                end)
+                pcall(function() method = tostring(Options.ragebot_evasion_method.Value) end)
                 local isTranslocate = (method == "translocate")
                 local isPB = (method == "projectile breaker")
                 hideShow(depthSlider, "ragebot_evasion_depth", isTranslocate)
@@ -21412,18 +21222,13 @@ local function directEntry(...)
                 hideShow(pbUpFreq, "ragebot_pb_up_freq", isPB)
                 hideShow(pbRepos, "ragebot_pb_reposition", isPB)
             end
-
             task.spawn(function()
                 for _ = 1, 10 do
                     task.wait(0.1)
                     updateEvasionVisibility()
-                    if Options and Options.ragebot_evasion_method then
-                        break
-                    end
+                    if Options and Options.ragebot_evasion_method then break end
                 end
-                pcall(function()
-                    Options.ragebot_evasion_method:OnChanged(updateEvasionVisibility)
-                end)
+                pcall(function() Options.ragebot_evasion_method:OnChanged(updateEvasionVisibility) end)
                 updateEvasionVisibility()
             end)
         end
@@ -21451,45 +21256,20 @@ local function directEntry(...)
                 end
                 spectateSaved = nil
             end
-            local function resolveSpectateCharacter(tgt)
-                if not tgt then return nil end
-                if typeof(tgt) ~= "Instance" then return nil end
-                if tgt:IsA("Player") then return tgt.Character end
-                if tgt:IsA("Model") and tgt:FindFirstChildOfClass("Humanoid") then return tgt end
-                if tgt:IsA("BasePart") then
-                    local m = tgt.Parent
-                    if m and m:IsA("Model") then return m end
-                    if m and m.Parent and m.Parent:IsA("Model") then return m.Parent end
-                end
-                return nil
-            end
             local function spectateStep()
-                local cam = workspace.CurrentCamera
-                if not cam then return end
-                local enabled = false
-                pcall(function()
-                    local t = spectateToggle or (Toggles and Toggles.ragebot_spectate_target)
-                    enabled = t and t.Value == true
-                end)
-                if not enabled then
-                    if spectateSaved then spectateRestore() end
-                    return
-                end
-                local ch = resolveSpectateCharacter(getgenv().__ragebot_current_target)
+                local enabled = spectateToggle and spectateToggle.Value
+                local targetPart = getgenv().__ragebot_current_target
+                local ch = targetPart and targetPart.Parent
                 local head = ch and ch:FindFirstChild("Head")
-                local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
-                if not head then return end
-                if not spectateSaved then
-                    spectateSaved = { type = cam.CameraType, subject = cam.CameraSubject }
-                end
+                local cam = workspace.CurrentCamera
+                if not (enabled and cam and head) then spectateRestore(); return end
+                if not spectateSaved then spectateSaved = { type = cam.CameraType, subject = cam.CameraSubject } end
                 cam.CameraType = Enum.CameraType.Scriptable
+                local hrp = ch:FindFirstChild("HumanoidRootPart")
                 local look = hrp and hrp.CFrame.LookVector or Vector3.new(0, 0, -1)
                 local pos = head.Position - look * 8 + Vector3.new(0, 2, 0)
                 cam.CFrame = CFrame.lookAt(pos, head.Position)
             end
-            pcall(function()
-                game:GetService("RunService"):UnbindFromRenderStep("FeSpectateCam")
-            end)
             game:GetService("RunService"):BindToRenderStep("FeSpectateCam", Enum.RenderPriority.Camera.Value + 1, spectateStep)
         end
         sharedSlot1_92.current = sharedSlot1_90.current.world
@@ -26529,6 +26309,43 @@ local function directEntry(...)
         sharedSlot1_96.current.Rounding = 0
         sharedSlot1_96.current.Compact = true
         sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
+
+        sharedSlot1_94.current = sharedSlot1_92.current
+        sharedSlot1_93.current = sharedSlot1_92.current.AddToggle
+        sharedSlot1_95.current = "movement_spinbot"
+        sharedSlot1_96.current = {}
+        sharedSlot1_96.current.Text = "spinbot"
+        sharedSlot1_96.current.Default = false
+        sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
+
+        sharedSlot1_94.current = sharedSlot1_92.current
+        sharedSlot1_93.current = sharedSlot1_92.current.AddSlider
+        sharedSlot1_95.current = "movement_spinbot_speed"
+        sharedSlot1_96.current = {}
+        sharedSlot1_96.current.Text = "speed"
+        sharedSlot1_96.current.Default = 20
+        sharedSlot1_96.current.Min = 1
+        sharedSlot1_96.current.Max = 100
+        sharedSlot1_96.current.Rounding = 0
+        sharedSlot1_96.current.Suffix = "x"
+        sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
+
+        sharedSlot1_94.current = sharedSlot1_92.current
+        sharedSlot1_93.current = sharedSlot1_92.current.AddToggle
+        sharedSlot1_95.current = "movement_bunny_hop"
+        sharedSlot1_96.current = {}
+        sharedSlot1_96.current.Text = "bunny hop"
+        sharedSlot1_96.current.Default = false
+        sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
+
+        sharedSlot1_94.current = sharedSlot1_92.current
+        sharedSlot1_93.current = sharedSlot1_92.current.AddToggle
+        sharedSlot1_95.current = "movement_infinite_jump"
+        sharedSlot1_96.current = {}
+        sharedSlot1_96.current.Text = "infinite jump"
+        sharedSlot1_96.current.Default = false
+        sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
+
         sharedSlot1_92.current = sharedSlot1_90.current.character
         sharedSlot1_93.current = sharedSlot1_92.current
         sharedSlot1_92.current = sharedSlot1_92.current.AddRightGroupbox
@@ -26704,6 +26521,17 @@ local function directEntry(...)
         sharedSlot1_98.current = {}
         sharedSlot1_98.current.NoUI = false
         sharedSlot1_98.current.Text = "underground"
+        sharedSlot1_95.current(sharedSlot1_96.current, sharedSlot1_97.current, sharedSlot1_98.current)
+        sharedSlot1_96.current = sharedSlot1_92.current
+        sharedSlot1_95.current = sharedSlot1_92.current.AddSlider
+        sharedSlot1_97.current = "anti_aim_floor_depth"
+        sharedSlot1_98.current = {}
+        sharedSlot1_98.current.Text = "depth"
+        sharedSlot1_98.current.Default = 5
+        sharedSlot1_98.current.Min = 1
+        sharedSlot1_98.current.Max = 25
+        sharedSlot1_98.current.Rounding = 1
+        sharedSlot1_98.current.Suffix = " studs"
         sharedSlot1_95.current(sharedSlot1_96.current, sharedSlot1_97.current, sharedSlot1_98.current)
         sharedSlot1_92.current = sharedSlot1_90.current.character
         sharedSlot1_93.current = sharedSlot1_92.current
@@ -28772,6 +28600,13 @@ if chunk then pcall(chunk) end
             end)(sharedSlot1_93.current)
         end
         sharedSlot1_98.current.Callback = sharedSlot1_99.current
+        sharedSlot1_95.current(sharedSlot1_96.current, sharedSlot1_97.current, sharedSlot1_98.current)
+        sharedSlot1_96.current = sharedSlot1_94.current
+        sharedSlot1_95.current = sharedSlot1_94.current.AddToggle
+        sharedSlot1_97.current = "watermark_enabled"
+        sharedSlot1_98.current = {}
+        sharedSlot1_98.current.Text = "watermark"
+        sharedSlot1_98.current.Default = true
         sharedSlot1_95.current(sharedSlot1_96.current, sharedSlot1_97.current, sharedSlot1_98.current)
         sharedSlot1_96.current = sharedSlot1_94.current
         sharedSlot1_95.current = sharedSlot1_94.current.AddSlider
