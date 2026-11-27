@@ -20,103 +20,6 @@ do
     end;
 end;
 
-
-do
-local services = setmetatable({}, {
-    __index = function(self, name)
-        local service = game:GetService(name)
-        local resolved = cloneref and cloneref(service) or service
-        rawset(self, name, resolved)
-        return resolved
-    end
-})
-local configuration = { block_reports = true, bypass_enabled = true }
-local variables = { report = nil, original = nil, installed = false, running = false, blocked_reports = 0 }
-local funcs = { shape = {}, gate = {}, hook = {}, module = {} }
-funcs.shape.resolve_report = function()
-    local replicated = services.ReplicatedStorage
-    if not replicated then return nil end
-    local remotes = replicated:FindFirstChild('Remotes')
-    if not remotes then return nil end
-    local pipeline = remotes:FindFirstChild('AnalyticsPipeline')
-    if not pipeline then return nil end
-    return pipeline:FindFirstChild('RemoteEvent')
-end
-funcs.shape.is_report = function(...)
-    if select('#', ...) < 2 then return false end
-    local status = select(1, ...)
-    if type(status) ~= 'table' or next(status) == nil then return false end
-    local identity = select(3, ...)
-    if type(identity) == 'table' and type(identity[1]) == 'string' and type(identity[2]) == 'number' then
-        if string.find(identity[1], ':', 1, true) ~= nil then return true end
-    end
-    for _, value in pairs(status) do
-        if typeof(value) == 'string' and string.len(value) == 64 and string.find(value, '^%x+$') ~= nil then
-            return true
-        end
-    end
-    return false
-end
-funcs.gate.route = function(self, ...)
-    local report = variables.report
-    if report == nil then
-        report = funcs.shape.resolve_report()
-        variables.report = report
-    end
-    if self ~= report then return false end
-    if not configuration.block_reports then return false end
-    if not funcs.shape.is_report(...) then return false end
-    variables.blocked_reports += 1
-    return true
-end
-funcs.hook.install = function()
-    if not configuration.bypass_enabled then return false end
-    local metatable = getrawmetatable(game)
-    if not metatable then return false end
-    local original = rawget(metatable, '__namecall')
-    if type(original) ~= 'function' then return false end
-    variables.original = original
-    variables.report = funcs.shape.resolve_report()
-    local function namecall(self, ...)
-        if getnamecallmethod() == 'FireServer' then
-            if funcs.gate.route(self, ...) then return end
-        end
-        return original(self, ...)
-    end
-    setreadonly(metatable, false)
-    rawset(metatable, '__namecall', namecall)
-    setreadonly(metatable, true)
-    variables.installed = true
-    return true
-end
-funcs.hook.restore = function()
-    if not variables.installed then return end
-    local metatable = getrawmetatable(game)
-    setreadonly(metatable, false)
-    rawset(metatable, '__namecall', variables.original)
-    setreadonly(metatable, true)
-    variables.installed = false
-end
-funcs.module.status = function()
-    return { installed = variables.installed, report_remote = variables.report ~= nil, blocked_reports = variables.blocked_reports }
-end
-funcs.module.start = function()
-    if variables.running then return false end
-    if variables.report == nil then variables.report = funcs.shape.resolve_report() end
-    funcs.hook.install()
-    variables.running = true
-    return true
-end
-funcs.module.stop = function()
-    variables.running = false
-    funcs.hook.restore()
-end
-local previous = rawget(getgenv(), '__sentinel')
-if type(previous) == 'table' and type(previous.stop) == 'function' then pcall(previous.stop) end
-rawset(getgenv(), '__sentinel', { start = funcs.module.start, stop = funcs.module.stop, status = funcs.module.status })
-funcs.module.start()
-end
-
 do
     local leftover_connection = rawget(getgenv(), '__fe_faster_reload_connection');
     if type(leftover_connection) == 'table' then
@@ -19287,21 +19190,48 @@ local function directEntry(...)
                             Text = "falling particles",
                         })
                         do
-                            local particleGui, particleConn, particles = nil, nil, {}
+                            local particleGui, particleConn, particles, splashes = nil, nil, {}, {}
                             local menuOpen = false
+                            local activeMode = "disabled"
                             local function destroyParticles()
                                 if particleConn then pcall(function() particleConn:Disconnect() end); particleConn = nil end
-                                particles = {}
+                                particles = {}; splashes = {}
                                 if particleGui then pcall(function() particleGui:Destroy() end); particleGui = nil end
+                                activeMode = "disabled"
                             end
                             local function getMode()
-                                local mode = "disabled"
+                                local mode = "snow"
                                 pcall(function()
                                     if Options and Options.falling_particles then
-                                        mode = tostring(Options.falling_particles.Value or "disabled")
+                                        mode = tostring(Options.falling_particles.Value or "snow"):lower()
                                     end
                                 end)
+                                if mode ~= "snow" and mode ~= "rain" then mode = "disabled" end
                                 return mode
+                            end
+                            local function isMenuReallyOpen()
+                                local open = false
+                                pcall(function()
+                                    local lib = themeManager and themeManager.Library
+                                    if lib and lib.Toggled == true then open = true end
+                                end)
+                                return open
+                            end
+                            local function spawnSplash(xScale)
+                                if not particleGui then return end
+                                local splash = Instance.new("Frame")
+                                splash.BackgroundColor3 = Color3.fromRGB(180, 200, 255)
+                                splash.BackgroundTransparency = 0.35
+                                splash.BorderSizePixel = 0
+                                splash.AnchorPoint = Vector2.new(0.5, 0.5)
+                                splash.Position = UDim2.fromScale(xScale, 0.97)
+                                splash.Size = UDim2.fromOffset(2, 2)
+                                splash.ZIndex = 1
+                                splash.Parent = particleGui
+                                local corner = Instance.new("UICorner")
+                                corner.CornerRadius = UDim.new(1, 0)
+                                corner.Parent = splash
+                                splashes[#splashes + 1] = { gui = splash, age = 0, life = 0.25 + math.random() * 0.2, maxSize = 8 + math.random() * 14 }
                             end
                             local function startParticles(mode)
                                 destroyParticles()
@@ -19317,57 +19247,91 @@ local function directEntry(...)
                                 particleGui = Instance.new("ScreenGui")
                                 particleGui.Name = "AzureFallingParticles"
                                 particleGui.IgnoreGuiInset = true
-                                particleGui.DisplayOrder = 9999
+                                particleGui.DisplayOrder = -50
                                 particleGui.ResetOnSpawn = false
+                                particleGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
                                 particleGui.Parent = parent
-                                local count = (mode == "rain") and 80 or 60
+                                activeMode = mode
+                                local count = (mode == "rain") and 90 or 55
                                 for i = 1, count do
-                                    local flake = Instance.new("TextLabel")
-                                    flake.BackgroundTransparency = 1
-                                    flake.Font = Enum.Font.SourceSans
-                                    flake.Size = UDim2.fromOffset(20, 20)
-                                    flake.Position = UDim2.fromScale(math.random(), -math.random() * 0.2)
-                                    flake.ZIndex = 10000
-                                    flake.Parent = particleGui
+                                    local flake
                                     if mode == "snow" then
-                                        flake.Text = (i % 3 == 0) and "❄" or "•"
+                                        flake = Instance.new("TextLabel")
+                                        flake.BackgroundTransparency = 1
+                                        flake.Text = (i % 4 == 0) and "❄" or "•"
                                         flake.TextColor3 = Color3.fromRGB(255, 255, 255)
-                                        flake.TextTransparency = 0.15 + math.random() * 0.45
-                                        flake.TextSize = (i % 3 == 0) and math.random(10, 18) or math.random(6, 12)
+                                        flake.TextTransparency = 0.2 + math.random() * 0.5
+                                        flake.TextSize = (i % 4 == 0) and math.random(10, 16) or math.random(5, 10)
+                                        flake.Font = Enum.Font.SourceSans
+                                        flake.Size = UDim2.fromOffset(18, 18)
                                     else
-                                        flake.Text = "|"
-                                        flake.TextColor3 = Color3.fromRGB(160, 190, 255)
-                                        flake.TextTransparency = 0.2 + math.random() * 0.4
-                                        flake.TextSize = math.random(10, 16)
+                                        flake = Instance.new("Frame")
+                                        flake.BorderSizePixel = 0
+                                        flake.BackgroundColor3 = Color3.fromRGB(150 + math.random(0, 40), 175 + math.random(0, 40), 220 + math.random(0, 35))
+                                        flake.BackgroundTransparency = 0.15 + math.random() * 0.35
+                                        flake.Size = UDim2.fromOffset(1 + math.random() * 1.2, 10 + math.random() * 16)
+                                        flake.Rotation = 12 + math.random() * 10
+                                        local corner = Instance.new("UICorner")
+                                        corner.CornerRadius = UDim.new(1, 0)
+                                        corner.Parent = flake
                                     end
+                                    flake.AnchorPoint = Vector2.new(0.5, 0.5)
+                                    flake.Position = UDim2.fromScale(math.random(), -math.random() * 0.3)
+                                    flake.ZIndex = 1
+                                    flake.Parent = particleGui
                                     particles[i] = {
-                                        gui = flake, x = math.random(), y = -math.random(),
-                                        speed = (mode == "rain") and (0.55 + math.random() * 0.55) or (0.08 + math.random() * 0.18),
-                                        drift = (mode == "rain") and ((math.random() - 0.5) * 0.02) or ((math.random() - 0.5) * 0.06),
-                                        rot = math.random() * 360,
-                                        rotSpeed = (mode == "rain") and 0 or ((math.random() - 0.5) * 40),
+                                        gui = flake, x = math.random(), y = -math.random() * 0.4,
+                                        speed = (mode == "rain") and (0.85 + math.random() * 0.9) or (0.07 + math.random() * 0.16),
+                                        drift = (mode == "rain") and (0.04 + math.random() * 0.05) or ((math.random() - 0.5) * 0.05),
+                                        rot = (mode == "rain") and (12 + math.random() * 10) or (math.random() * 360),
+                                        rotSpeed = (mode == "rain") and 0 or ((math.random() - 0.5) * 35),
+                                        splashCooldown = 0,
                                     }
                                 end
                                 particleConn = game:GetService("RunService").RenderStepped:Connect(function(dt)
-                                    if not particleGui or not particleGui.Parent then return end
+                                    if not menuOpen or not particleGui or not particleGui.Parent then destroyParticles(); return end
+                                    if not isMenuReallyOpen() then menuOpen = false; destroyParticles(); return end
                                     for _, f in ipairs(particles) do
                                         f.y = f.y + f.speed * dt
                                         f.x = f.x + f.drift * dt
                                         f.rot = f.rot + f.rotSpeed * dt
-                                        if f.y > 1.05 then f.y = -0.05; f.x = math.random() end
+                                        if f.splashCooldown > 0 then f.splashCooldown = f.splashCooldown - dt end
+                                        if f.y >= 0.96 then
+                                            if activeMode == "rain" and f.splashCooldown <= 0 then
+                                                spawnSplash(math.clamp(f.x, 0.02, 0.98))
+                                                f.splashCooldown = 0.05
+                                            end
+                                            f.y = -0.05 - math.random() * 0.15
+                                            f.x = math.random()
+                                        end
                                         if f.x < -0.05 then f.x = 1.05 end
                                         if f.x > 1.05 then f.x = -0.05 end
                                         f.gui.Position = UDim2.fromScale(f.x, f.y)
-                                        f.gui.Rotation = f.rot
+                                        if activeMode == "snow" then f.gui.Rotation = f.rot end
+                                    end
+                                    for i = #splashes, 1, -1 do
+                                        local s = splashes[i]
+                                        s.age = s.age + dt
+                                        local alpha = s.age / s.life
+                                        if alpha >= 1 or not s.gui.Parent then
+                                            pcall(function() s.gui:Destroy() end)
+                                            table.remove(splashes, i)
+                                        else
+                                            local size = s.maxSize * (0.35 + alpha * 0.9)
+                                            s.gui.Size = UDim2.fromOffset(size, size * 0.35)
+                                            s.gui.BackgroundTransparency = 0.35 + alpha * 0.65
+                                        end
                                     end
                                 end)
                             end
                             local function refreshParticles()
+                                if not menuOpen then destroyParticles(); return end
                                 local mode = getMode()
-                                if mode == "disabled" or not menuOpen then destroyParticles() else startParticles(mode) end
+                                if mode == "disabled" then destroyParticles()
+                                elseif mode ~= activeMode or not particleGui then startParticles(mode) end
                             end
                             task.spawn(function()
-                                for _ = 1, 30 do
+                                for _ = 1, 40 do
                                     task.wait(0.1)
                                     if Options and Options.falling_particles then break end
                                 end
@@ -19381,10 +19345,20 @@ local function directEntry(...)
                                     pcall(function()
                                         lib:OnEvent("VisibilityChanged", function(visible)
                                             menuOpen = visible == true
-                                            refreshParticles()
+                                            if menuOpen then refreshParticles() else destroyParticles() end
                                         end)
                                     end)
                                     if lib.Toggled then menuOpen = true; refreshParticles() end
+                                end
+                                while true do
+                                    task.wait(0.2)
+                                    local reallyOpen = isMenuReallyOpen()
+                                    if menuOpen ~= reallyOpen then
+                                        menuOpen = reallyOpen
+                                        if menuOpen then refreshParticles() else destroyParticles() end
+                                    elseif not reallyOpen and particleGui then
+                                        menuOpen = false; destroyParticles()
+                                    end
                                 end
                             end)
                         end
@@ -21041,22 +21015,6 @@ local function directEntry(...)
         sharedSlot1_97.current.Default = true
         sharedSlot1_94.current(sharedSlot1_95.current, sharedSlot1_96.current, sharedSlot1_97.current)
         sharedSlot1_95.current = sharedSlot1_93.current
-        sharedSlot1_94.current = sharedSlot1_93.current.AddToggle
-        sharedSlot1_96.current = "ragebot_bait"
-        sharedSlot1_97.current = {}
-        sharedSlot1_97.current.Text = "bait"
-        sharedSlot1_97.current.Default = false
-        sharedSlot1_97.current.Tooltip = "holds a shootable decoy so their shot lands on nothing, then translocates onto them"
-        sharedSlot1_94.current(sharedSlot1_95.current, sharedSlot1_96.current, sharedSlot1_97.current)
-        sharedSlot1_95.current = sharedSlot1_93.current
-        sharedSlot1_94.current = sharedSlot1_93.current.AddToggle
-        sharedSlot1_96.current = "ragebot_economize"
-        sharedSlot1_97.current = {}
-        sharedSlot1_97.current.Text = "economize"
-        sharedSlot1_97.current.Default = false
-        sharedSlot1_97.current.Tooltip = "stops wasting ammo: one packet per volley and no shots through cover"
-        sharedSlot1_94.current(sharedSlot1_95.current, sharedSlot1_96.current, sharedSlot1_97.current)
-        sharedSlot1_95.current = sharedSlot1_93.current
         sharedSlot1_94.current = sharedSlot1_93.current.AddDependencyBox
         sharedSlot1_94.current = sharedSlot1_94.current(sharedSlot1_95.current)
         sharedSlot1_96.current = sharedSlot1_94.current
@@ -21246,101 +21204,6 @@ local function directEntry(...)
         sharedSlot1_98.current[2] = localSlot1_100
         sharedSlot1_97.current.Default = sharedSlot1_98.current
         sharedSlot1_94.current(sharedSlot1_95.current, sharedSlot1_96.current, sharedSlot1_97.current)
-        do
-            local evasionTab = sharedSlot1_92.current:AddTab("evasion")
-            evasionTab:AddDropdown("ragebot_evasion_method", {
-                Text = "evasion method",
-                Values = { "scatter", "translocate", "projectile breaker" },
-                Default = 1,
-            })
-            evasionTab:AddDropdown("ragebot_attack_pos", {
-                Text = "attack pos",
-                Values = { "above", "under", "random" },
-                Default = 1,
-            })
-            local depthSlider = evasionTab:AddSlider("ragebot_evasion_depth", {
-                Text = "depth", Min = -10, Max = 10, Default = -5, Rounding = 1,
-            })
-            local pbFwdMin = evasionTab:AddSlider("ragebot_pb_forward_min", {
-                Text = "forward depth min", Min = 0, Max = 10, Default = 0, Rounding = 1,
-            })
-            local pbFwdMax = evasionTab:AddSlider("ragebot_pb_forward_max", {
-                Text = "forward depth max", Min = 0, Max = 10, Default = 4, Rounding = 1,
-            })
-            local pbFwdFreq = evasionTab:AddSlider("ragebot_pb_forward_freq", {
-                Text = "forward frequency", Min = 0, Max = 20, Default = 5, Rounding = 1,
-            })
-            local pbUpMin = evasionTab:AddSlider("ragebot_pb_up_min", {
-                Text = "up depth min", Min = 0, Max = 10, Default = 0, Rounding = 1,
-            })
-            local pbUpMax = evasionTab:AddSlider("ragebot_pb_up_max", {
-                Text = "up depth max", Min = 0, Max = 10, Default = 5.5, Rounding = 1,
-            })
-            local pbUpFreq = evasionTab:AddSlider("ragebot_pb_up_freq", {
-                Text = "up frequency", Min = 0, Max = 20, Default = 5, Rounding = 1,
-            })
-            local pbRepos = evasionTab:AddSlider("ragebot_pb_reposition", {
-                Text = "reposition interval", Min = 0.05, Max = 2, Default = 0.3, Rounding = 2, Suffix = "s",
-            })
-            local function hideShow(ctrl, key, visible)
-                pcall(function()
-                    if ctrl and type(ctrl.SetVisible) == "function" then ctrl:SetVisible(visible) end
-                end)
-                pcall(function()
-                    local opt = Options and Options[key]
-                    if not opt then return end
-                    if type(opt.SetVisible) == "function" then opt:SetVisible(visible) end
-                    if opt.Visible ~= nil then opt.Visible = visible end
-                end)
-                pcall(function()
-                    local targets = { ctrl }
-                    local opt = Options and Options[key]
-                    if opt then targets[#targets + 1] = opt end
-                    for _, t in ipairs(targets) do
-                        if type(t) == "table" then
-                            for _, field in ipairs({ "Holder", "Container", "Frame", "Root", "Box", "Outer" }) do
-                                local f = t[field]
-                                if typeof(f) == "Instance" and f:IsA("GuiObject") then f.Visible = visible end
-                            end
-                        elseif typeof(t) == "Instance" and t:IsA("GuiObject") then
-                            t.Visible = visible
-                        end
-                    end
-                end)
-            end
-            local function updateEvasionVisibility()
-                local method = "scatter"
-                pcall(function()
-                    if Options and Options.ragebot_evasion_method then
-                        method = tostring(Options.ragebot_evasion_method.Value)
-                    end
-                end)
-                local isTranslocate = (method == "translocate")
-                local isPB = (method == "projectile breaker")
-                hideShow(depthSlider, "ragebot_evasion_depth", isTranslocate)
-                hideShow(pbFwdMin, "ragebot_pb_forward_min", isPB)
-                hideShow(pbFwdMax, "ragebot_pb_forward_max", isPB)
-                hideShow(pbFwdFreq, "ragebot_pb_forward_freq", isPB)
-                hideShow(pbUpMin, "ragebot_pb_up_min", isPB)
-                hideShow(pbUpMax, "ragebot_pb_up_max", isPB)
-                hideShow(pbUpFreq, "ragebot_pb_up_freq", isPB)
-                hideShow(pbRepos, "ragebot_pb_reposition", isPB)
-            end
-            task.spawn(function()
-                for _ = 1, 15 do
-                    task.wait(0.1)
-                    updateEvasionVisibility()
-                    if Options and Options.ragebot_evasion_method then break end
-                end
-                pcall(function()
-                    if Options and Options.ragebot_evasion_method then
-                        Options.ragebot_evasion_method:OnChanged(updateEvasionVisibility)
-                    end
-                end)
-                updateEvasionVisibility()
-            end)
-        end
-
         do
             local viewingTab = sharedSlot1_92.current:AddTab("viewing")
             local spectateToggleObject = viewingTab:AddToggle("ragebot_spectate_target", {
@@ -26417,146 +26280,6 @@ local function directEntry(...)
         sharedSlot1_96.current.Rounding = 0
         sharedSlot1_96.current.Compact = true
         sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
-
-        sharedSlot1_94.current = sharedSlot1_92.current
-        sharedSlot1_93.current = sharedSlot1_92.current.AddToggle
-        sharedSlot1_95.current = "movement_spinbot"
-        sharedSlot1_96.current = {}
-        sharedSlot1_96.current.Text = "spinbot"
-        sharedSlot1_96.current.Default = false
-        sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
-
-        sharedSlot1_94.current = sharedSlot1_92.current
-        sharedSlot1_93.current = sharedSlot1_92.current.AddSlider
-        sharedSlot1_95.current = "movement_spinbot_speed"
-        sharedSlot1_96.current = {}
-        sharedSlot1_96.current.Text = "speed"
-        sharedSlot1_96.current.Default = 20
-        sharedSlot1_96.current.Min = 1
-        sharedSlot1_96.current.Max = 100
-        sharedSlot1_96.current.Rounding = 0
-        sharedSlot1_96.current.Suffix = "x"
-        sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
-
-        sharedSlot1_94.current = sharedSlot1_92.current
-        sharedSlot1_93.current = sharedSlot1_92.current.AddToggle
-        sharedSlot1_95.current = "movement_bunny_hop"
-        sharedSlot1_96.current = {}
-        sharedSlot1_96.current.Text = "bunny hop"
-        sharedSlot1_96.current.Default = false
-        sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
-
-        sharedSlot1_94.current = sharedSlot1_92.current
-        sharedSlot1_93.current = sharedSlot1_92.current.AddToggle
-        sharedSlot1_95.current = "movement_infinite_jump"
-        sharedSlot1_96.current = {}
-        sharedSlot1_96.current.Text = "infinite jump"
-        sharedSlot1_96.current.Default = false
-        sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
-
-        sharedSlot1_94.current = sharedSlot1_92.current
-        sharedSlot1_93.current = sharedSlot1_92.current.AddToggle
-        sharedSlot1_95.current = "movement_airslide"
-        sharedSlot1_96.current = {}
-        sharedSlot1_96.current.Text = "airslide"
-        sharedSlot1_96.current.Default = false
-        sharedSlot1_96.current.Tooltip = "extends floor raycast for airslide"
-        sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
-
-        do
-            local airslideSaved = { ExtraFloorRaycastDistanceHipHeightPercent = nil, TaskSchedulerTargetFps = nil, saved = false }
-            local airslideApplied = false
-            local function airslideGetFlag(name)
-                local val = nil
-                pcall(function() if type(getfflag) == "function" then val = getfflag(name) end end)
-                return val
-            end
-            local function airslideSetFlag(name, value)
-                return pcall(function() if type(setfflag) == "function" then setfflag(name, tostring(value)) end end)
-            end
-            local function airslideApply(enabled)
-                enabled = enabled == true
-                if enabled then
-                    if not airslideSaved.saved then
-                        airslideSaved.ExtraFloorRaycastDistanceHipHeightPercent = airslideGetFlag("ExtraFloorRaycastDistanceHipHeightPercent")
-                        airslideSaved.TaskSchedulerTargetFps = airslideGetFlag("TaskSchedulerTargetFps")
-                        airslideSaved.saved = true
-                    end
-                    airslideSetFlag("ExtraFloorRaycastDistanceHipHeightPercent", "99999999999")
-                    airslideSetFlag("TaskSchedulerTargetFps", "999999999999999999999")
-                    airslideApplied = true
-                else
-                    if airslideApplied or airslideSaved.saved then
-                        airslideSetFlag("ExtraFloorRaycastDistanceHipHeightPercent", airslideSaved.ExtraFloorRaycastDistanceHipHeightPercent or "1")
-                        airslideSetFlag("TaskSchedulerTargetFps", airslideSaved.TaskSchedulerTargetFps or "240")
-                    end
-                    airslideApplied = false
-                end
-            end
-            getgenv().__fe_airslide_sync = function()
-                local enabled = false
-                pcall(function()
-                    if Toggles and Toggles.movement_airslide then
-                        enabled = Toggles.movement_airslide.Value == true
-                    end
-                end)
-                airslideApply(enabled)
-            end
-            local spinAngle = 0
-            task.spawn(function()
-                for _ = 1, 30 do
-                    task.wait(0.1)
-                    if Toggles and (Toggles.movement_spinbot or Toggles.movement_airslide) then break end
-                end
-                pcall(function()
-                    if Toggles and Toggles.movement_airslide then
-                        Toggles.movement_airslide:OnChanged(function(v) airslideApply(v == true) end)
-                        airslideApply(Toggles.movement_airslide.Value == true)
-                    end
-                end)
-                local Players = game:GetService("Players")
-                local RunService = game:GetService("RunService")
-                local UIS = game:GetService("UserInputService")
-                local lp = Players.LocalPlayer
-                RunService.Heartbeat:Connect(function(dt)
-                    local char = lp and lp.Character
-                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                    local hum = char and char:FindFirstChildOfClass("Humanoid")
-                    if not hrp or not hum then return end
-                    local spinOn, spinSpeed = false, 20
-                    pcall(function()
-                        spinOn = Toggles.movement_spinbot and Toggles.movement_spinbot.Value
-                        spinSpeed = (Options.movement_spinbot_speed and Options.movement_spinbot_speed.Value) or 20
-                    end)
-                    if spinOn then
-                        spinAngle = (spinAngle + spinSpeed * dt * 60) % 360
-                        hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, math.rad(spinAngle), 0)
-                    end
-                    local bhop = false
-                    pcall(function() bhop = Toggles.movement_bunny_hop and Toggles.movement_bunny_hop.Value end)
-                    if bhop and hum.FloorMaterial ~= Enum.Material.Air and hum.MoveDirection.Magnitude > 0.05 then
-                        hum.Jump = true
-                    end
-                end)
-                UIS.JumpRequest:Connect(function()
-                    local inf = false
-                    pcall(function() inf = Toggles.movement_infinite_jump and Toggles.movement_infinite_jump.Value end)
-                    if not inf then return end
-                    local char = lp and lp.Character
-                    local hum = char and char:FindFirstChildOfClass("Humanoid")
-                    if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
-                end)
-                while true do
-                    task.wait(0.5)
-                    pcall(function()
-                        if type(getgenv().__fe_airslide_sync) == "function" then
-                            getgenv().__fe_airslide_sync()
-                        end
-                    end)
-                end
-            end)
-        end
-
         sharedSlot1_92.current = sharedSlot1_90.current.character
         sharedSlot1_93.current = sharedSlot1_92.current
         sharedSlot1_92.current = sharedSlot1_92.current.AddRightGroupbox
