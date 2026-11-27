@@ -19183,6 +19183,138 @@ local function directEntry(...)
                             Max = 1,
                             Rounding = 1,
                         })
+                        backgroundTab:AddDropdown("falling_particles", {
+                            Values = { "disabled", "snow", "rain" },
+                            Default = "snow",
+                            Multi = false,
+                            Text = "falling particles",
+                        })
+                        do
+                            local particleGui, particleConn, particles = nil, nil, {}
+                            local menuOpen = false
+                            local function destroyParticles()
+                                if particleConn then
+                                    pcall(function() particleConn:Disconnect() end)
+                                    particleConn = nil
+                                end
+                                particles = {}
+                                if particleGui then
+                                    pcall(function() particleGui:Destroy() end)
+                                    particleGui = nil
+                                end
+                            end
+                            local function getMode()
+                                local mode = "disabled"
+                                pcall(function()
+                                    if Options and Options.falling_particles then
+                                        mode = tostring(Options.falling_particles.Value or "disabled")
+                                    end
+                                end)
+                                return mode
+                            end
+                            local function startParticles(mode)
+                                destroyParticles()
+                                if mode ~= "snow" and mode ~= "rain" then return end
+                                if not menuOpen then return end
+                                local parent = nil
+                                pcall(function()
+                                    parent = (gethui and gethui()) or game:GetService("CoreGui")
+                                end)
+                                if not parent then
+                                    local lp = game:GetService("Players").LocalPlayer
+                                    parent = lp and (lp:FindFirstChild("PlayerGui") or lp:WaitForChild("PlayerGui", 3))
+                                end
+                                if not parent then return end
+                                particleGui = Instance.new("ScreenGui")
+                                particleGui.Name = "AzureFallingParticles"
+                                particleGui.IgnoreGuiInset = true
+                                particleGui.DisplayOrder = 9999
+                                particleGui.ResetOnSpawn = false
+                                particleGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+                                particleGui.Parent = parent
+                                local count = (mode == "rain") and 80 or 60
+                                for i = 1, count do
+                                    local flake = Instance.new("TextLabel")
+                                    flake.BackgroundTransparency = 1
+                                    flake.Font = Enum.Font.SourceSans
+                                    flake.Size = UDim2.fromOffset(20, 20)
+                                    flake.Position = UDim2.fromScale(math.random(), -math.random() * 0.2)
+                                    flake.ZIndex = 10000
+                                    flake.Parent = particleGui
+                                    if mode == "snow" then
+                                        flake.Text = (i % 3 == 0) and "❄" or "•"
+                                        flake.TextColor3 = Color3.fromRGB(255, 255, 255)
+                                        flake.TextTransparency = 0.15 + math.random() * 0.45
+                                        flake.TextSize = (i % 3 == 0) and math.random(10, 18) or math.random(6, 12)
+                                    else
+                                        flake.Text = "|"
+                                        flake.TextColor3 = Color3.fromRGB(160, 190, 255)
+                                        flake.TextTransparency = 0.2 + math.random() * 0.4
+                                        flake.TextSize = math.random(10, 16)
+                                    end
+                                    particles[i] = {
+                                        gui = flake,
+                                        x = math.random(),
+                                        y = -math.random(),
+                                        speed = (mode == "rain") and (0.55 + math.random() * 0.55) or (0.08 + math.random() * 0.18),
+                                        drift = (mode == "rain") and ((math.random() - 0.5) * 0.02) or ((math.random() - 0.5) * 0.06),
+                                        rot = math.random() * 360,
+                                        rotSpeed = (mode == "rain") and 0 or ((math.random() - 0.5) * 40),
+                                    }
+                                end
+                                particleConn = game:GetService("RunService").RenderStepped:Connect(function(dt)
+                                    if not particleGui or not particleGui.Parent then return end
+                                    for _, f in ipairs(particles) do
+                                        f.y = f.y + f.speed * dt
+                                        f.x = f.x + f.drift * dt
+                                        f.rot = f.rot + f.rotSpeed * dt
+                                        if f.y > 1.05 then
+                                            f.y = -0.05
+                                            f.x = math.random()
+                                        end
+                                        if f.x < -0.05 then f.x = 1.05 end
+                                        if f.x > 1.05 then f.x = -0.05 end
+                                        f.gui.Position = UDim2.fromScale(f.x, f.y)
+                                        f.gui.Rotation = f.rot
+                                    end
+                                end)
+                            end
+                            local function refreshParticles()
+                                local mode = getMode()
+                                if mode == "disabled" or not menuOpen then
+                                    destroyParticles()
+                                else
+                                    startParticles(mode)
+                                end
+                            end
+                            getgenv().__fe_falling_particles_refresh = refreshParticles
+                            task.spawn(function()
+                                for _ = 1, 30 do
+                                    task.wait(0.1)
+                                    if Options and Options.falling_particles then break end
+                                end
+                                pcall(function()
+                                    if Options and Options.falling_particles then
+                                        Options.falling_particles:OnChanged(function()
+                                            refreshParticles()
+                                        end)
+                                    end
+                                end)
+                                local lib = themeManager.Library
+                                if lib and type(lib.OnEvent) == "function" then
+                                    pcall(function()
+                                        lib:OnEvent("VisibilityChanged", function(visible)
+                                            menuOpen = visible == true
+                                            refreshParticles()
+                                        end)
+                                    end)
+                                    if lib.Toggled then
+                                        menuOpen = true
+                                        refreshParticles()
+                                    end
+                                end
+                            end)
+                        end
                         themeManager:LoadDefault()
                         local updateTheme = function()
                             themeManager:ThemeUpdate()
@@ -19365,7 +19497,7 @@ local function directEntry(...)
         sharedSlot1_90.current = sharedSlot1_89.current
         sharedSlot1_89.current = sharedSlot1_89.current.CreateWindow
         sharedSlot1_91.current = {}
-        sharedSlot1_91.current.Title = "Azure Enchancements"
+        sharedSlot1_91.current.Title = "azure enchancements"
         sharedSlot1_91.current.Version = "developer"
         sharedSlot1_91.current.Center = true
         sharedSlot1_92.current = getfenv().SILENT
@@ -26101,82 +26233,6 @@ local function directEntry(...)
         sharedSlot1_96.current.Rounding = 0
         sharedSlot1_96.current.Compact = true
         sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
-
-        sharedSlot1_94.current = sharedSlot1_92.current
-        sharedSlot1_93.current = sharedSlot1_92.current.AddToggle
-        sharedSlot1_95.current = "movement_airslide"
-        sharedSlot1_96.current = {}
-        sharedSlot1_96.current.Text = "airslide"
-        sharedSlot1_96.current.Default = false
-        sharedSlot1_96.current.Tooltip = "extends floor raycast for airslide"
-        sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
-
-        do
-            local airslideSaved = {
-                ExtraFloorRaycastDistanceHipHeightPercent = nil,
-                TaskSchedulerTargetFps = nil,
-                saved = false,
-            }
-            local function airslideGetFlag(name)
-                local val = nil
-                pcall(function()
-                    if type(getfflag) == "function" then
-                        val = getfflag(name)
-                    end
-                end)
-                return val
-            end
-            local function airslideSetFlag(name, value)
-                return pcall(function()
-                    if type(setfflag) == "function" then
-                        setfflag(name, tostring(value))
-                    end
-                end)
-            end
-            local function airslideApply(enabled)
-                if enabled then
-                    if not airslideSaved.saved then
-                        airslideSaved.ExtraFloorRaycastDistanceHipHeightPercent = airslideGetFlag("ExtraFloorRaycastDistanceHipHeightPercent")
-                        airslideSaved.TaskSchedulerTargetFps = airslideGetFlag("TaskSchedulerTargetFps")
-                        airslideSaved.saved = true
-                    end
-                    airslideSetFlag("ExtraFloorRaycastDistanceHipHeightPercent", "99999999999")
-                    airslideSetFlag("TaskSchedulerTargetFps", "999999999999999999999")
-                else
-                    if airslideSaved.saved then
-                        local floor = airslideSaved.ExtraFloorRaycastDistanceHipHeightPercent
-                        local fps = airslideSaved.TaskSchedulerTargetFps
-                        if floor ~= nil then
-                            airslideSetFlag("ExtraFloorRaycastDistanceHipHeightPercent", floor)
-                        else
-                            airslideSetFlag("ExtraFloorRaycastDistanceHipHeightPercent", "1")
-                        end
-                        if fps ~= nil then
-                            airslideSetFlag("TaskSchedulerTargetFps", fps)
-                        else
-                            airslideSetFlag("TaskSchedulerTargetFps", "240")
-                        end
-                    end
-                end
-            end
-            task.spawn(function()
-                for _ = 1, 20 do
-                    task.wait(0.1)
-                    if Toggles and Toggles.movement_airslide then
-                        break
-                    end
-                end
-                pcall(function()
-                    Toggles.movement_airslide:OnChanged(function(v)
-                        airslideApply(v == true)
-                    end)
-                    if Toggles.movement_airslide.Value then
-                        airslideApply(true)
-                    end
-                end)
-            end)
-        end
-
         sharedSlot1_92.current = sharedSlot1_90.current.character
         sharedSlot1_93.current = sharedSlot1_92.current
         sharedSlot1_92.current = sharedSlot1_92.current.AddRightGroupbox
