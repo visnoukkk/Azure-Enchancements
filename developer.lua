@@ -29,122 +29,7 @@ do
     rawset(getgenv(), '__fe_faster_reload_enabled', false);
 end;
 
-do
-    task.spawn(function()
-        local Players = game:GetService("Players")
-        local RunService = game:GetService("RunService")
-        local UIS = game:GetService("UserInputService")
-        local Stats = game:GetService("Stats")
-        local lp = Players.LocalPlayer
-        local spinAngle = 0
-        local frames, lastFpsUpdate, fps = 0, tick(), 60
 
-        RunService.RenderStepped:Connect(function()
-            frames = frames + 1
-            local now = tick()
-            if now - lastFpsUpdate >= 1 then
-                fps = frames
-                frames = 0
-                lastFpsUpdate = now
-            end
-        end)
-
-        local function getExecutorName()
-            local name = "unknown"
-            pcall(function()
-                if identifyexecutor then
-                    name = tostring(identifyexecutor())
-                elseif getexecutorname then
-                    name = tostring(getexecutorname())
-                end
-            end)
-            return name
-        end
-
-        local function getPing()
-            local ping = 0
-            pcall(function()
-                local item = Stats.Network.ServerStatsItem["Data Ping"]
-                if item then
-                    ping = math.floor(item:GetValue() or 0)
-                end
-            end)
-            return ping
-        end
-
-        task.wait(1)
-
-        -- watermark loop
-        task.spawn(function()
-            while true do
-                pcall(function()
-                    local enabled = true
-                    if Toggles and Toggles.watermark_enabled then
-                        enabled = Toggles.watermark_enabled.Value == true
-                    end
-                    if Library and Library.SetWatermarkVisibility then
-                        Library:SetWatermarkVisibility(enabled)
-                    elseif Library and Library.Watermark then
-                        Library.Watermark.Visible = enabled
-                    end
-                    if enabled and Library then
-                        local text = string.format(
-                            "Azure Enchancements - version 1.0 - %dfps - %dms - %s - %s - discord.gg/aJsKKRMGZ3",
-                            fps,
-                            getPing(),
-                            getExecutorName(),
-                            (lp and lp.Name) or "?"
-                        )
-                        if Library.SetWatermark then
-                            Library:SetWatermark(text)
-                        elseif Library.WatermarkText then
-                            Library.WatermarkText.Text = text
-                        end
-                    end
-                end)
-                task.wait(0.5)
-            end
-        end)
-
-        RunService.Heartbeat:Connect(function(dt)
-            local char = lp and lp.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if not hrp or not hum then return end
-
-            local spinOn, spinSpeed = false, 20
-            pcall(function()
-                spinOn = Toggles.movement_spinbot and Toggles.movement_spinbot.Value
-                spinSpeed = (Options.movement_spinbot_speed and Options.movement_spinbot_speed.Value) or 20
-            end)
-            if spinOn then
-                spinAngle = (spinAngle + spinSpeed * dt * 60) % 360
-                hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, math.rad(spinAngle), 0)
-            end
-
-            local bhop = false
-            pcall(function()
-                bhop = Toggles.movement_bunny_hop and Toggles.movement_bunny_hop.Value
-            end)
-            if bhop and hum.FloorMaterial ~= Enum.Material.Air and hum.MoveDirection.Magnitude > 0.05 then
-                hum.Jump = true
-            end
-        end)
-
-        UIS.JumpRequest:Connect(function()
-            local inf = false
-            pcall(function()
-                inf = Toggles.movement_infinite_jump and Toggles.movement_infinite_jump.Value
-            end)
-            if not inf then return end
-            local char = lp and lp.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-            end
-        end)
-    end)
-end
 
 local existingBase64Decode = base64_decode
 
@@ -1341,12 +1226,7 @@ local function ragebot_initialize(
         if not neutralEnabled1 then
             return
         end
-        local depth = 5
-        pcall(function()
-            depth = tonumber(Options.anti_aim_floor_depth.Value) or 5
-        end)
-        local offset = vector3New(0, depth, 0)
-        local neutralScale1 = neutralDependency9(clientPosition - offset)
+        local neutralScale1 = neutralDependency9(clientPosition - snapshotP586Capture6)
         local neutralVector1 = neutralDependency21(90)
         local neutralScale2 = neutralDependency17(neutralVector1, 0, 0)
         serverValue = neutralScale1 * neutralScale2
@@ -19485,8 +19365,8 @@ local function directEntry(...)
         sharedSlot1_90.current = sharedSlot1_89.current
         sharedSlot1_89.current = sharedSlot1_89.current.CreateWindow
         sharedSlot1_91.current = {}
-        sharedSlot1_91.current.Title = "Azure Enchancements - .gg/aJsKKRMGZ3"
-        sharedSlot1_91.current.Version = "1.0"
+        sharedSlot1_91.current.Title = "Azure Enchancements"
+        sharedSlot1_91.current.Version = "developer"
         sharedSlot1_91.current.Center = true
         sharedSlot1_92.current = getfenv().SILENT
         sharedSlot1_92.current = not sharedSlot1_92.current
@@ -21145,94 +21025,6 @@ local function directEntry(...)
         sharedSlot1_98.current[2] = localSlot1_100
         sharedSlot1_97.current.Default = sharedSlot1_98.current
         sharedSlot1_94.current(sharedSlot1_95.current, sharedSlot1_96.current, sharedSlot1_97.current)
-
-        do
-            local evasionTab = sharedSlot1_92.current:AddTab("evasion")
-            evasionTab:AddDropdown("ragebot_evasion_method", {
-                Text = "evasion method",
-                Values = { "scatter", "translocate", "projectile breaker" },
-                Default = 1,
-            })
-            evasionTab:AddDropdown("ragebot_attack_pos", {
-                Text = "attack pos",
-                Values = { "above", "under", "random" },
-                Default = 1,
-            })
-            local depthSlider = evasionTab:AddSlider("ragebot_evasion_depth", {
-                Text = "depth", Min = -10, Max = 10, Default = -5, Rounding = 1,
-            })
-            local pbFwdMin = evasionTab:AddSlider("ragebot_pb_forward_min", {
-                Text = "forward depth min", Min = 0, Max = 10, Default = 0, Rounding = 1,
-            })
-            local pbFwdMax = evasionTab:AddSlider("ragebot_pb_forward_max", {
-                Text = "forward depth max", Min = 0, Max = 10, Default = 4, Rounding = 1,
-            })
-            local pbFwdFreq = evasionTab:AddSlider("ragebot_pb_forward_freq", {
-                Text = "forward frequency", Min = 0, Max = 20, Default = 5, Rounding = 1,
-            })
-            local pbUpMin = evasionTab:AddSlider("ragebot_pb_up_min", {
-                Text = "up depth min", Min = 0, Max = 10, Default = 0, Rounding = 1,
-            })
-            local pbUpMax = evasionTab:AddSlider("ragebot_pb_up_max", {
-                Text = "up depth max", Min = 0, Max = 10, Default = 5.5, Rounding = 1,
-            })
-            local pbUpFreq = evasionTab:AddSlider("ragebot_pb_up_freq", {
-                Text = "up frequency", Min = 0, Max = 20, Default = 5, Rounding = 1,
-            })
-            local pbRepos = evasionTab:AddSlider("ragebot_pb_reposition", {
-                Text = "reposition interval", Min = 0.05, Max = 2, Default = 0.3, Rounding = 2, Suffix = "s",
-            })
-            local function hideShow(ctrl, key, visible)
-                pcall(function()
-                    if ctrl and type(ctrl.SetVisible) == "function" then ctrl:SetVisible(visible) end
-                end)
-                pcall(function()
-                    local opt = Options and Options[key]
-                    if not opt then return end
-                    if type(opt.SetVisible) == "function" then opt:SetVisible(visible) end
-                    if opt.Visible ~= nil then opt.Visible = visible end
-                end)
-                pcall(function()
-                    local targets = { ctrl }
-                    local opt = Options and Options[key]
-                    if opt then targets[#targets + 1] = opt end
-                    for _, t in ipairs(targets) do
-                        if type(t) == "table" then
-                            for _, field in ipairs({ "Holder", "Container", "Frame", "Root", "Box", "Outer" }) do
-                                local f = t[field]
-                                if typeof(f) == "Instance" and f:IsA("GuiObject") then f.Visible = visible end
-                            end
-                        elseif typeof(t) == "Instance" and t:IsA("GuiObject") then
-                            t.Visible = visible
-                        end
-                    end
-                end)
-            end
-            local function updateEvasionVisibility()
-                local method = "scatter"
-                pcall(function() method = tostring(Options.ragebot_evasion_method.Value) end)
-                local isTranslocate = (method == "translocate")
-                local isPB = (method == "projectile breaker")
-                hideShow(depthSlider, "ragebot_evasion_depth", isTranslocate)
-                hideShow(pbFwdMin, "ragebot_pb_forward_min", isPB)
-                hideShow(pbFwdMax, "ragebot_pb_forward_max", isPB)
-                hideShow(pbFwdFreq, "ragebot_pb_forward_freq", isPB)
-                hideShow(pbUpMin, "ragebot_pb_up_min", isPB)
-                hideShow(pbUpMax, "ragebot_pb_up_max", isPB)
-                hideShow(pbUpFreq, "ragebot_pb_up_freq", isPB)
-                hideShow(pbRepos, "ragebot_pb_reposition", isPB)
-            end
-            task.spawn(function()
-                for _ = 1, 10 do
-                    task.wait(0.1)
-                    updateEvasionVisibility()
-                    if Options and Options.ragebot_evasion_method then break end
-                end
-                pcall(function() Options.ragebot_evasion_method:OnChanged(updateEvasionVisibility) end)
-                updateEvasionVisibility()
-            end)
-        end
-
         do
             local viewingTab = sharedSlot1_92.current:AddTab("viewing")
             local spectateToggleObject = viewingTab:AddToggle("ragebot_spectate_target", {
@@ -26312,39 +26104,78 @@ local function directEntry(...)
 
         sharedSlot1_94.current = sharedSlot1_92.current
         sharedSlot1_93.current = sharedSlot1_92.current.AddToggle
-        sharedSlot1_95.current = "movement_spinbot"
+        sharedSlot1_95.current = "movement_airslide"
         sharedSlot1_96.current = {}
-        sharedSlot1_96.current.Text = "spinbot"
+        sharedSlot1_96.current.Text = "airslide"
         sharedSlot1_96.current.Default = false
+        sharedSlot1_96.current.Tooltip = "extends floor raycast for airslide"
         sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
 
-        sharedSlot1_94.current = sharedSlot1_92.current
-        sharedSlot1_93.current = sharedSlot1_92.current.AddSlider
-        sharedSlot1_95.current = "movement_spinbot_speed"
-        sharedSlot1_96.current = {}
-        sharedSlot1_96.current.Text = "speed"
-        sharedSlot1_96.current.Default = 20
-        sharedSlot1_96.current.Min = 1
-        sharedSlot1_96.current.Max = 100
-        sharedSlot1_96.current.Rounding = 0
-        sharedSlot1_96.current.Suffix = "x"
-        sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
-
-        sharedSlot1_94.current = sharedSlot1_92.current
-        sharedSlot1_93.current = sharedSlot1_92.current.AddToggle
-        sharedSlot1_95.current = "movement_bunny_hop"
-        sharedSlot1_96.current = {}
-        sharedSlot1_96.current.Text = "bunny hop"
-        sharedSlot1_96.current.Default = false
-        sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
-
-        sharedSlot1_94.current = sharedSlot1_92.current
-        sharedSlot1_93.current = sharedSlot1_92.current.AddToggle
-        sharedSlot1_95.current = "movement_infinite_jump"
-        sharedSlot1_96.current = {}
-        sharedSlot1_96.current.Text = "infinite jump"
-        sharedSlot1_96.current.Default = false
-        sharedSlot1_93.current(sharedSlot1_94.current, sharedSlot1_95.current, sharedSlot1_96.current)
+        do
+            local airslideSaved = {
+                ExtraFloorRaycastDistanceHipHeightPercent = nil,
+                TaskSchedulerTargetFps = nil,
+                saved = false,
+            }
+            local function airslideGetFlag(name)
+                local val = nil
+                pcall(function()
+                    if type(getfflag) == "function" then
+                        val = getfflag(name)
+                    end
+                end)
+                return val
+            end
+            local function airslideSetFlag(name, value)
+                return pcall(function()
+                    if type(setfflag) == "function" then
+                        setfflag(name, tostring(value))
+                    end
+                end)
+            end
+            local function airslideApply(enabled)
+                if enabled then
+                    if not airslideSaved.saved then
+                        airslideSaved.ExtraFloorRaycastDistanceHipHeightPercent = airslideGetFlag("ExtraFloorRaycastDistanceHipHeightPercent")
+                        airslideSaved.TaskSchedulerTargetFps = airslideGetFlag("TaskSchedulerTargetFps")
+                        airslideSaved.saved = true
+                    end
+                    airslideSetFlag("ExtraFloorRaycastDistanceHipHeightPercent", "99999999999")
+                    airslideSetFlag("TaskSchedulerTargetFps", "999999999999999999999")
+                else
+                    if airslideSaved.saved then
+                        local floor = airslideSaved.ExtraFloorRaycastDistanceHipHeightPercent
+                        local fps = airslideSaved.TaskSchedulerTargetFps
+                        if floor ~= nil then
+                            airslideSetFlag("ExtraFloorRaycastDistanceHipHeightPercent", floor)
+                        else
+                            airslideSetFlag("ExtraFloorRaycastDistanceHipHeightPercent", "1")
+                        end
+                        if fps ~= nil then
+                            airslideSetFlag("TaskSchedulerTargetFps", fps)
+                        else
+                            airslideSetFlag("TaskSchedulerTargetFps", "240")
+                        end
+                    end
+                end
+            end
+            task.spawn(function()
+                for _ = 1, 20 do
+                    task.wait(0.1)
+                    if Toggles and Toggles.movement_airslide then
+                        break
+                    end
+                end
+                pcall(function()
+                    Toggles.movement_airslide:OnChanged(function(v)
+                        airslideApply(v == true)
+                    end)
+                    if Toggles.movement_airslide.Value then
+                        airslideApply(true)
+                    end
+                end)
+            end)
+        end
 
         sharedSlot1_92.current = sharedSlot1_90.current.character
         sharedSlot1_93.current = sharedSlot1_92.current
@@ -26521,17 +26352,6 @@ local function directEntry(...)
         sharedSlot1_98.current = {}
         sharedSlot1_98.current.NoUI = false
         sharedSlot1_98.current.Text = "underground"
-        sharedSlot1_95.current(sharedSlot1_96.current, sharedSlot1_97.current, sharedSlot1_98.current)
-        sharedSlot1_96.current = sharedSlot1_92.current
-        sharedSlot1_95.current = sharedSlot1_92.current.AddSlider
-        sharedSlot1_97.current = "anti_aim_floor_depth"
-        sharedSlot1_98.current = {}
-        sharedSlot1_98.current.Text = "depth"
-        sharedSlot1_98.current.Default = 5
-        sharedSlot1_98.current.Min = 1
-        sharedSlot1_98.current.Max = 25
-        sharedSlot1_98.current.Rounding = 1
-        sharedSlot1_98.current.Suffix = " studs"
         sharedSlot1_95.current(sharedSlot1_96.current, sharedSlot1_97.current, sharedSlot1_98.current)
         sharedSlot1_92.current = sharedSlot1_90.current.character
         sharedSlot1_93.current = sharedSlot1_92.current
@@ -28600,13 +28420,6 @@ if chunk then pcall(chunk) end
             end)(sharedSlot1_93.current)
         end
         sharedSlot1_98.current.Callback = sharedSlot1_99.current
-        sharedSlot1_95.current(sharedSlot1_96.current, sharedSlot1_97.current, sharedSlot1_98.current)
-        sharedSlot1_96.current = sharedSlot1_94.current
-        sharedSlot1_95.current = sharedSlot1_94.current.AddToggle
-        sharedSlot1_97.current = "watermark_enabled"
-        sharedSlot1_98.current = {}
-        sharedSlot1_98.current.Text = "watermark"
-        sharedSlot1_98.current.Default = true
         sharedSlot1_95.current(sharedSlot1_96.current, sharedSlot1_97.current, sharedSlot1_98.current)
         sharedSlot1_96.current = sharedSlot1_94.current
         sharedSlot1_95.current = sharedSlot1_94.current.AddSlider
